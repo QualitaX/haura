@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "../interfaces/IERC7586.sol";
 import "./IRSToken.sol";
 import "../Types.sol";
 
 contract ERC7586 is IERC7586, IRSToken {
+    AggregatorV3Interface internal ETHStakingFeed;
+
     constructor(
         string memory _irsTokenName,
         string memory _irsTokenSymbol,
         Types.IRS memory _irs
     ) IRSToken(_irsTokenName, _irsTokenSymbol) {
         irs = _irs;
+        ETHStakingFeed = AggregatorV3Interface(_irs.oracleContractForBenchmark);
 
         // one token minted for each settlement cycle per counterparty
         uint256 balance = uint256(_irs.settlementDates.length) * 1 ether;
@@ -74,8 +78,16 @@ contract ERC7586 is IERC7586, IRSToken {
     }
 
 
-    function benchmark() external view returns(uint256) {
- 
+    function benchmark() external view returns(int256) {
+        (
+            /* uint80 roundID */,
+            int stakingRate,
+            /*uint startedAt*/,
+            /*uint timeStamp*/,
+            /*uint80 answeredInRound*/
+        ) = ETHStakingFeed.latestRoundData();
+
+        return stakingRate;
     }
 
     function swap() external returns(bool) {
