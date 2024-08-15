@@ -5,11 +5,17 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 
 import "./interfaces/IERC6123.sol";
 import "./ERC6123Storage.sol";
+import "./assets/ERC7586.sol";
+import "./Types.sol";
 
-contract ERC6123 is IERC6123, ERC6123Storage {
-    constructor (address _party1, address _party2) {
-        party1 = _party1;
-        party2 = _party2;
+contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
+    constructor (
+        string memory _irsTokenName,
+        string memory _irsTokenSymbol,
+        Types.IRS memory _irs
+    ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs) {
+        party1 = _irs.floatingRatePayer;
+        party2 = _irs.fixedRatePayer;
     }
 
     function inceptTrade(

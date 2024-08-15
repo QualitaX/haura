@@ -4,17 +4,36 @@ pragma solidity ^0.8.19;
 import "../interfaces/IERC20.sol";
 import "../Types.sol";
 
+/**
+* @notice This token contract allows tokenize Interest Rate Swap cashflows.
+*         Approval and Transfer of tokens are allowed only before the IRS contract reaches maturity.
+*         This feature prevents tokens to be traded after the contract has matured.
+*         When tokens are transferred to an account, the ownership (fixedRatePayer or floatingRatePayer) is also transferred.
+*         The contract doesn't support partial transfer of tokens. All the balance must be transferred for the transaction to be successful.
+*/
 contract IRSToken is IERC20 {
     Types.IRS internal irs;
     Types.SettlementReceipt internal settlementReceipt;
+
+    modifier onlyBeforeMaturity() {
+        require(
+            block.timestamp <= irs.maturityDate,
+            "IRS contract has reached the Maturity Date"
+        );
+        _;
+    }
 
     mapping(address => uint256) internal _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
     uint256 internal _totalSupply;
+    uint256 internal _maxSupply;
+    uint256 private _burnedSupply;
 
     string private _name;
     string private _symbol;
+
+    error supplyExceededMaxSupply(uint256 totalSupply_, uint256 maxSupply_);
 
     constructor(string memory name_, string memory symbol_) {
         _name = name_;
@@ -89,14 +108,14 @@ contract IRSToken is IERC20 {
         address from,
         address to,
         uint256 amount
-    ) internal virtual {
+    ) internal virtual onlyBeforeMaturity {
         require(from != address(0), "ERC20: transfer from the zero address");
         require(to != address(0), "ERC20: transfer to the zero address");
 
         _beforeTokenTransfer(from, to, amount);
 
         uint256 fromBalance = _balances[from];
-        require(fromBalance >= amount, "ERC20: transfer amount exceeds balance");
+        require(fromBalance == amount, "ERC20: you must transfer all your balance");
         unchecked {
             _balances[from] = fromBalance - amount;
             _balances[to] += amount;
@@ -121,6 +140,8 @@ contract IRSToken is IERC20 {
         _beforeTokenTransfer(address(0), account, amount);
 
         _totalSupply += amount;
+        if (_totalSupply + _burnedSupply > _maxSupply) revert supplyExceededMaxSupply(_totalSupply, _maxSupply);
+
         unchecked {
             _balances[account] += amount;
         }
@@ -141,6 +162,7 @@ contract IRSToken is IERC20 {
         unchecked {
             _balances[account] = accountBalance - amount;
             _totalSupply -= amount;
+            _burnedSupply += amount;
         }
 
         emit Transfer(account, address(0), amount);
@@ -154,7 +176,7 @@ contract IRSToken is IERC20 {
         address owner,
         address spender,
         uint256 amount
-    ) internal virtual {
+    ) internal virtual onlyBeforeMaturity {
         require(owner != address(0), "ERC20: approve from the zero address");
         require(spender != address(0), "ERC20: approve to the zero address");
 

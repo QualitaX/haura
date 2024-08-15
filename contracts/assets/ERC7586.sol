@@ -13,7 +13,9 @@ contract ERC7586 is IERC7586, IRSToken {
     ) IRSToken(_irsTokenName, _irsTokenSymbol) {
         irs = _irs;
 
+        // one token minted for each settlement cycle per counterparty
         uint256 balance = uint256(_irs.settlementDates.length) * 1 ether;
+        _maxSupply = 2 * balance;
 
         mint(_irs.fixedRatePayer, balance);
         mint(_irs.floatingRatePayer, balance);
@@ -69,6 +71,11 @@ contract ERC7586 is IERC7586, IRSToken {
 
     function oracleContractForBenchmark() external view returns(address) {
         return irs.oracleContractForBenchmark;
+    }
+
+
+    function benchmark() external view returns(uint256) {
+ 
     }
 
     function swap() external returns(bool) {
