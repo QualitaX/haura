@@ -44,6 +44,7 @@ abstract contract ERC6123Storage {
     }
 
     error cannotInceptWithYourself(address _inceptor, address _withParty);
+    error callerMustBePayerOrReceiver(address _caller, address _payer, address _receiver);
     error invalidPositionValue(int256 _position);
     error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
 
@@ -83,21 +84,14 @@ abstract contract ERC6123Storage {
         _;
     }
 
-    modifier onlyCounterparty() {
-        require(
-            msg.sender == party1 || msg.sender == party2,
-            "You are not a counterparty."
-        );
-        _;
-    }
-
     mapping(uint256 => address) internal pendingRequests;
 
     TradeState internal tradeState;
-    address internal party1;
-    address internal party2;
     address internal receivingParty;
 
     string internal tradeID;
     string internal tradeData;
+
+    int256 terminationFee;
+    int256 upfrontPayment;
 }
