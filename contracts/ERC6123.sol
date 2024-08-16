@@ -109,7 +109,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         address upfrontPayer = upfrontPayment > 0 ? otherParty(receivingParty) : receivingParty;
         uint256 upfrontTransferAmount = uint256(abs(_paymentAmount));
 
-        // processTradeAfterConfirmation(upfrontPayer, upfrontTransferAmount, _initialSettlementData);
+        processTradeAfterConfirmation(upfrontPayer, upfrontTransferAmount, _initialSettlementData);
      }
 
     function cancelTrade(
@@ -169,7 +169,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
             keccak256(abi.encodePacked(tradeID)) == keccak256(abi.encodePacked(tradeID)),
             "Trade ID mismatch"
         );
-        uint256 hash = uint256(
+        uint256 terminationHash = uint256(
             keccak256(abi.encode(
                 _tradeId,
                 "terminate",
@@ -178,30 +178,98 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
             ))
         );
 
-        pendingRequests[hash] = msg.sender;
+        pendingRequests[terminationHash] = msg.sender;
 
         emit TradeTerminationRequest(msg.sender, _tradeId, _terminationPayment, _terminationTerms);
     }
 
     function confirmTradeTermination(
-        string memory tradeId,
-        int256 terminationPayment,
-        string memory terminationTerms
+        string memory _tradeId,
+        int256 _terminationPayment,
+        string memory _terminationTerms
     ) external {
+        address pendingRequestParty = _inceptingParty();
+        uint256 hashConfirm = uint256(
+            keccak256(abi.encode(
+                _tradeId,
+                "terminate",
+                -_terminationPayment,
+                _terminationTerms
+            ))
+        );
+        require(
+            pendingRequests[hashConfirm] == pendingRequestParty,
+            "Confirmation failed due to wrong party or missing request"
+        );
 
+        delete pendingRequests[hashConfirm];
+        terminationPayment = msg.sender == receivingParty ? _terminationPayment : -_terminationPayment;
+
+        emit TradeTerminationConfirmed(msg.sender, _tradeId, _terminationPayment, _terminationTerms);
+
+        // Trigger Termination Payment Amount
+        address payerAddress = terminationPayment > 0 ? otherParty(receivingParty) : receivingParty;
+        uint256 absPaymentAmount = uint256(abs(_terminationPayment));
+        setTradeState(TradeState.InTermination);
+        processTradeAfterMutualTermination(payerAddress, absPaymentAmount, _terminationTerms);
     }
 
     function cancelTradeTermination(
-        string memory tradeId,
-        int256 terminationPayment,
-        string memory terminationTerms
+        string memory _tradeId,
+        int256 _terminationPayment,
+        string memory _terminationTerms
     ) external {
+        address pendingRequestParty = msg.sender;
+        uint256 hashConfirm = uint256(keccak256(
+            abi.encode(
+                _tradeId,
+                "terminate",
+                _terminationPayment,
+                _terminationTerms
+            )
+        ));
+        require(
+            pendingRequests[hashConfirm] == pendingRequestParty,
+            "Cancellation failed due to wrong party or missing request"
+        );
+        delete pendingRequests[hashConfirm];
+        
+        emit TradeTerminationCanceled(msg.sender, _tradeId, _terminationTerms);
+    }
+
+    /*
+     * Booking of the upfrontPayment and implementation specific setups of margin buffers / wallets.
+     */
+    function processTradeAfterConfirmation(address _upfrontPayer, uint256 _upfrontPayment, string memory _initialSettlementData) virtual internal {
+
+    }
+
+
+    /*
+     * Booking of the terminationAmount and implementation specific cleanup of margin buffers / wallets.
+     */
+    function processTradeAfterMutualTermination(address _terminationFeePayer, uint256 _terminationAmount,  string memory _terminationData) virtual internal {
 
     }
 
     function _inceptingParty() private view returns(address) {
         return msg.sender == _irs.floatingRatePayer ? _irs.fixedRatePayer : _irs.floatingRatePayer;
     }
+
+    function setTradeState(TradeState newState) internal {
+        if ( newState == TradeState.Incepted && tradeState != TradeState.Inactive)
+            revert("Provided Trade state is not allowed");
+        if ( newState == TradeState.Confirmed && tradeState != TradeState.Incepted)
+            revert("Provided Trade state is not allowed");
+        if ( newState == TradeState.InTransfer && !(tradeState == TradeState.Confirmed || tradeState == TradeState.Valuation) )
+            revert("Provided Trade state is not allowed");
+        if ( newState == TradeState.Valuation && tradeState != TradeState.Settled)
+            revert("Provided Trade state is not allowed");
+        if ( newState == TradeState.InTermination && !(tradeState == TradeState.InTransfer || tradeState == TradeState.Settled ) )
+            revert("Provided Trade state is not allowed");
+        tradeState = newState;
+    }
+
 
     /**
      * Other party

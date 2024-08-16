@@ -23,20 +23,24 @@ abstract contract ERC6123Storage {
         Confirmed,
 
         /*
-         * Valuation Phase
+         * Valuation Phase: The contract is awaiting a valuation for the next settlement.
          */
         Valuation,
 
         /*
-         * A Token-based Transfer is in Progress
+         * Token-based Transfer is in Progress. Contracts awaits termination of token transfer (allows async transfers).
          */
         InTransfer,
 
         /*
-         * Settlement is Completed
+         * Settlement is Completed.
          */
         Settled,
 
+        /*
+         * Termination is in Progress.
+         */
+        InTermination,
         /*
          * Terminated.
          */
@@ -44,7 +48,7 @@ abstract contract ERC6123Storage {
     }
 
     error cannotInceptWithYourself(address _inceptor, address _withParty);
-    error callerMustBePayerOrReceiver(address _caller, address _payer, address _receiver);
+    error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
     error invalidPositionValue(int256 _position);
     error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
 
@@ -55,6 +59,7 @@ abstract contract ERC6123Storage {
         ); 
         _;
     }
+
     modifier onlyWhenTradeIncepted() {
         require(
             tradeState == TradeState.Incepted,
@@ -62,6 +67,7 @@ abstract contract ERC6123Storage {
         );
         _;
     }
+
     modifier onlyWhenSettled() {
         require(
             tradeState == TradeState.Settled,
@@ -69,6 +75,7 @@ abstract contract ERC6123Storage {
         );
         _;
     }
+
     modifier onlyWhenValuation() {
         require(
             tradeState == TradeState.Valuation,
@@ -76,6 +83,15 @@ abstract contract ERC6123Storage {
         );
         _;
     }
+
+    modifier onlyWhenInTermination () {
+        require(
+            tradeState == TradeState.InTermination,
+            "Trade state is not 'InTermination'."
+        );
+        _;
+    }
+
     modifier onlyWhenInTransfer() {
         require(
             tradeState == TradeState.InTransfer,

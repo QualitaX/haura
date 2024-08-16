@@ -78,7 +78,7 @@ contract ERC7586 is IERC7586, IRSToken {
     }
 
 
-    function benchmark() external view returns(int256) {
+    function benchmark() public view returns(int256) {
         (
             /* uint80 roundID */,
             int stakingRate,

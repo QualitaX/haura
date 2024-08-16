@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 interface IERC7586 {
-    //-------------------------- events --------------------------
+    //-------------------------- Events --------------------------
     /**
     * @notice MUST be emitted when interest rates are swapped
     * @param _amount the interest difference to be transferred
@@ -17,7 +17,7 @@ interface IERC7586 {
     */
     event TerminateSwap(address indexed _payer, address indexed _receiver);
 
-    //-------------------------- functions --------------------------
+    //-------------------------- Functions --------------------------
     /**
     *  @notice Returns the IRS `payer` account address. The party who agreed to pay fixed interest
     */
