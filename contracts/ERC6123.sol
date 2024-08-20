@@ -66,7 +66,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         emit TradeIncepted(
             msg.sender,
             _withParty,
-            tradeId,
+            tradeID,
             _tradeData,
             _position,
             _paymentAmount,
