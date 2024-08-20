@@ -37,11 +37,11 @@ contract ERC7586 is IERC7586, IRSToken {
         return irs.ratesDecimals;
     }
 
-    function swapRate() external view returns(uint256) {
+    function swapRate() external view returns(int256) {
         return irs.swapRate;
     }
 
-    function spread() external view returns(uint256) {
+    function spread() external view returns(int256) {
         return irs.spread;
     }
 

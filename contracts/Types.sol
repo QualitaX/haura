@@ -10,8 +10,8 @@ abstract contract Types {
         address settlementCurrency;
         uint8 ratesDecimals;
         uint8 dayCountBasis;
-        uint256 swapRate;
-        uint256 spread;
+        int256 swapRate;
+        int256 spread;
         uint256 notionalAmount;
         uint256 settlementFrequency;
         uint256 startingDate;

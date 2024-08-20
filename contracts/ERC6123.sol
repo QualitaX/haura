@@ -157,7 +157,40 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         bool success,
         string memory transactionData
     ) external {
-
+        if ( inStateConfirmed()){
+            if (success){
+                setTradeState(TradeState.Settled);
+                emit TradeActivated(getTradeID());
+            }
+            else{
+                setTradeState(TradeState.Terminated);
+                emit TradeTerminated(tradeID, "Upfront Transfer Failure");
+            }
+        }
+        else if ( inStateTransfer() ){
+            if (success){
+                setTradeState(TradeState.Settled);
+                emit SettlementTransferred("Settlement Settled - Pledge Transfer");
+            }
+            else{  // Settlement & Pledge Case: transferAmount is transferred from SDC balance (i.e. pledged balance).
+                int256 settlementAmount = settlementAmounts[settlementAmounts.length-1];
+                setTradeState(TradeState.InTermination);
+                processTerminationWithPledge(settlementAmount);
+                emit TradeTerminated(tradeID, "Settlement Failed - Pledge Transfer");
+            }
+        }
+        else if( inStateTermination() ){
+            if (success){
+                setTradeState(TradeState.Terminated);
+                emit TradeTerminated(tradeID, "Trade terminated sucessfully");
+            }
+            else{
+                emit TradeTerminated(tradeID, "Mutual Termination failed - Pledge Transfer");
+                processTerminationWithPledge(getTerminationPayment());
+            }
+        }
+        else
+            revert("Trade State does not allow to call 'afterTransfer'");
     }
 
     function requestTradeTermination(
@@ -166,7 +199,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         string memory _terminationTerms
     ) external {
         require(
-            keccak256(abi.encodePacked(tradeID)) == keccak256(abi.encodePacked(tradeID)),
+            keccak256(abi.encodePacked(tradeID)) == keccak256(abi.encodePacked(_tradeId)),
             "Trade ID mismatch"
         );
         uint256 terminationHash = uint256(
@@ -240,7 +273,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     /*
      * Booking of the upfrontPayment and implementation specific setups of margin buffers / wallets.
      */
-    function processTradeAfterConfirmation(address _upfrontPayer, uint256 _upfrontPayment, string memory _initialSettlementData) virtual internal {
+    function processTradeAfterConfirmation(address _upfrontPayer, uint256 _upfrontPayment, string memory _initialSettlementData) internal virtual {
 
     }
 
@@ -248,12 +281,26 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     /*
      * Booking of the terminationAmount and implementation specific cleanup of margin buffers / wallets.
      */
-    function processTradeAfterMutualTermination(address _terminationFeePayer, uint256 _terminationAmount,  string memory _terminationData) virtual internal {
+    function processTradeAfterMutualTermination(address _terminationFeePayer, uint256 _terminationAmount,  string memory _terminationData) internal virtual {
 
     }
 
     function _inceptingParty() private view returns(address) {
         return msg.sender == _irs.floatingRatePayer ? _irs.fixedRatePayer : _irs.floatingRatePayer;
+    }
+
+    /*
+     * Management of Trade States
+     */
+    function    inStateIncepted()    public view returns (bool) { return tradeState == TradeState.Incepted; }
+    function    inStateConfirmed()   public view returns (bool) { return tradeState == TradeState.Confirmed; }
+    function    inStateSettled()     public view returns (bool) { return tradeState == TradeState.Settled; }
+    function    inStateTransfer()    public view returns (bool) { return tradeState == TradeState.InTransfer; }
+    function    inStateTermination() public view returns (bool) { return tradeState == TradeState.InTermination; }
+    function    inStateTerminated()  public view returns (bool) { return tradeState == TradeState.Terminated; }
+
+    function getTradeState() public view returns (TradeState) {
+        return tradeState;
     }
 
     function setTradeState(TradeState newState) internal {
@@ -270,6 +317,37 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         tradeState = newState;
     }
 
+    /*
+     * Upfront and termination payments.
+     */
+
+    function getReceivingParty() public view returns (address) {
+        return receivingParty;
+    }
+
+    function getUpfrontPayment() public view returns (int) {
+        return upfrontPayment;
+    }
+
+    function getTerminationPayment() public view returns (int) {
+        return terminationFee;
+    }
+
+    /*
+     * Trade Specification (ID, Token, Data)
+     */
+
+    function getTradeID() public view returns (string memory) {
+        return tradeID;
+    }
+
+    function setTradeId(string memory _tradeID) public {
+        tradeID= _tradeID;
+    }
+
+    function getTradeData() public view returns (string memory) {
+        return tradeData;
+    }
 
     /**
      * Other party
@@ -298,5 +376,4 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     function abs(int x) internal pure returns (int256) {
         return x >= 0 ? x : -x;
     }
-
 }

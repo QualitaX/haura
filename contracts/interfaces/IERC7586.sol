@@ -39,13 +39,13 @@ interface IERC7586 {
     /**
     *  @notice Returns the fixed interest rate. All rates MUST be multiplied by 10^(ratesDecimals)
     */
-    function swapRate() external view returns(uint256);
+    function swapRate() external view returns(int256);
 
     /**
     *  @notice Returns the floating rate spread, i.e. the fixed part of the floating interest rate. All rates MUST be multiplied by 10^(ratesDecimals)
     *          floatingRate = benchmark + spread
     */
-    function spread() external view returns(uint256);
+    function spread() external view returns(int256);
 
     /**
     * @notice Returns the day count basis
