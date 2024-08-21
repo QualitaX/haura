@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+import "./Types.sol";
+
 abstract contract ERC6123StorageWorking {
     /*
      * Trade States
@@ -96,16 +98,23 @@ abstract contract ERC6123StorageWorking {
     }
 
     mapping(uint256 => address) internal pendingRequests;
+    mapping(address => Types.MarginRequirement) internal marginRequirements;
 
     TradeState internal tradeState;
 
-    error cannotInceptWithYourself(address _caller, address _withParty);
-    error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
-    error invalidPositionValue(int256 _position);
+    error invalidTradeID(string _tradeID);
     error invalidPaymentAmount(uint256 _amount);
+    error invalidPositionValue(int256 _position);
+    error mustBeOtherParty(address _withParty, address _otherParty);
+    error cannotInceptWithYourself(address _caller, address _withParty);
+    error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
+    error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
+
     address receivingParty;
     string tradeData;
     string tradeID;
 
     int256 upfrontPayment;
+    uint256 initialMarginBuffer;
+    uint256 initialTerminationFee;
 }

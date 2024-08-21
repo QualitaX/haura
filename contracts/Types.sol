@@ -25,4 +25,9 @@ abstract contract Types {
         address currency;
         uint256 amount;
     }
+
+    struct MarginRequirement {
+        uint256 marginBuffer;
+        uint256 terminationFee;
+    }
 }
