@@ -74,18 +74,16 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             _initialSettlementData
         );
 
-        /**
-            //The initial margin and the termination fee must be deposited into the contract
-            uint256 margin = marginRequirements[msg.sender];
-            uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
+        //The initial margin and the termination fee must be deposited into the contract
+        uint256 margin = marginRequirements[msg.sender];
+        uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
 
-            require(
-                IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
-                "Failed to to transfer the initial margin + the termination fee"
-            );
-            
-            marginRequirements[_irs.floatingRatePayer] = Types.MarginRequirement(_initialBuffer, _initialTerminationFee);
-        */
+        require(
+            IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
+            "Failed to to transfer the initial margin + the termination fee"
+        );
+        
+        marginRequirements[_irs.floatingRatePayer] = Types.MarginRequirement(_initialBuffer, _initialTerminationFee);
     }
 
     
@@ -117,18 +115,16 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
 
         emit TradeConfirmed(msg.sender, tradeID);
 
-        /**
-            // The initial margin and the termination fee must be deposited into the contract
-            uint256 margin = marginRequirements[msg.sender];
-            uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
+        // The initial margin and the termination fee must be deposited into the contract
+        uint256 margin = marginRequirements[msg.sender];
+        uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
 
-            require(
-                IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
-                "Failed to to transfer the initial margin + the termination fee"
-            );
+        require(
+            IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
+            "Failed to to transfer the initial margin + the termination fee"
+        );
 
-            marginRequirements[_irs.fixedRatePayer] = Types.MarginRequirement(_initialBuffer, _initialTerminationFee);
-        */
+        marginRequirements[_irs.fixedRatePayer] = Types.MarginRequirement(_initialBuffer, _initialTerminationFee);
     }
 
     function cancelTrade(
@@ -243,7 +239,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         emit TradeTerminationCanceled(msg.sender, _tradeId, _terminationTerms);
     }
 
-    /**---------------------- nternal Private and other view functions ----------------------*/
+    /**---------------------- Internal Private and other view functions ----------------------*/
 
     function otherParty() internal view returns(address) {
         return msg.sender == irs.fixedRatePayer ? irs.floatingRatePayer : irs.fixedRatePayer;
