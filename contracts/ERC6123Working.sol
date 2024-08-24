@@ -79,7 +79,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
 
         require(
-            IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
+            IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
             "Failed to to transfer the initial margin + the termination fee"
         );
         
@@ -120,7 +120,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
 
         require(
-            IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
+            IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
             "Failed to to transfer the initial margin + the termination fee"
         );
 
