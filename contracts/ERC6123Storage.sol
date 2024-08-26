@@ -103,7 +103,6 @@ abstract contract ERC6123Storage {
     mapping(uint256 => address) internal pendingRequests;
 
     TradeState internal tradeState;
-    address internal receivingParty;
 
     string internal tradeID;
     string internal tradeData;

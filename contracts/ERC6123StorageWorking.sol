@@ -65,6 +65,14 @@ abstract contract ERC6123StorageWorking {
         _;
     }
 
+    modifier onlyWhenTradeConfirmed() {
+        require(
+            tradeState == TradeState.Confirmed,
+            "Trade state is not 'Confirmed'." 
+        );
+        _;
+    }
+
     modifier onlyWhenSettled() {
         require(
             tradeState == TradeState.Settled,
@@ -97,12 +105,29 @@ abstract contract ERC6123StorageWorking {
         _;
     }
 
+    modifier onlyWithinConfirmationTime() {
+        require(
+            block.timestamp - inceptingTime <= confirmationTime,
+            "Confimartion time is over"
+        );
+        _;
+    }
+
+    modifier onlyAfterConfirmationTime() {
+        require(
+            block.timestamp - inceptingTime > confirmationTime,
+            "Wait till confirmation time is over"
+        );
+        _;
+    }
+
     mapping(uint256 => address) internal pendingRequests;
     mapping(address => Types.MarginRequirement) internal marginRequirements;
 
     TradeState internal tradeState;
 
     error invalidTradeID(string _tradeID);
+    error nothingToSwap(int256 _fixedRate, int256 _floatingRate);
     error invalidPaymentAmount(uint256 _amount);
     error invalidPositionValue(int256 _position);
     error mustBeOtherParty(address _withParty, address _otherParty);
@@ -110,11 +135,17 @@ abstract contract ERC6123StorageWorking {
     error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
     error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
 
-    address receivingParty;
     string tradeData;
-    string tradeID;
+    string settlementData;
+    string public tradeID;
 
-    int256 upfrontPayment;
-    uint256 initialMarginBuffer;
-    uint256 initialTerminationFee;
+    address receivingParty;
+
+    uint256 internal initialMarginBuffer;
+    uint256 internal initialTerminationFee;
+    uint256 internal inceptingTime;
+    uint256 internal confirmationTime;
+    uint256 internal netSettlementAmount;
+
+    int256 internal rateMultiplier;
 }

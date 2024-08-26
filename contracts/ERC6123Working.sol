@@ -22,10 +22,13 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         string memory _irsTokenSymbol,
         Types.IRS memory _irs,
         uint256 _initialMarginBuffer,
-        uint256 _initialTerminationFee
+        uint256 _initialTerminationFee,
+        int256 _rateMultiplier
     ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs) {
         initialMarginBuffer = _initialMarginBuffer;
         initialTerminationFee = _initialTerminationFee;
+        confirmationTime = 1 hours;
+        rateMultiplier = _rateMultiplier;
     }
 
     function inceptTrade(
@@ -61,29 +64,30 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         pendingRequests[dataHash] = msg.sender;
         tradeID = Strings.toString(dataHash);
         tradeData = _tradeData;
-
-        receivingParty = _position == 1 ? mas.sender : _withParty;
-        upfrontPayment = _position == 1 ? _paymentAmount : -_paymentAmount;
+        inceptingTime = block.timestamp;
 
         emit TradeIncepted(
             msg.sender,
             _withParty,
-            tradeID, _tradeData,
+            tradeID,
+            _tradeData,
             _position,
             _paymentAmount,
             _initialSettlementData
         );
 
         //The initial margin and the termination fee must be deposited into the contract
-        uint256 margin = marginRequirements[msg.sender];
-        uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
+        uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
 
         require(
             IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
             "Failed to to transfer the initial margin + the termination fee"
         );
         
-        marginRequirements[_irs.floatingRatePayer] = Types.MarginRequirement(_initialBuffer, _initialTerminationFee);
+        marginRequirements[msg.sender] = Types.MarginRequirement({
+            marginBuffer: initialMarginBuffer,
+            terminationFee: initialTerminationFee
+        });
     }
 
     
@@ -93,7 +97,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         int _position,
         int256 _paymentAmount,
         string memory _initialSettlementData
-    ) external override onlyWhenTradeIncepted {
+    ) external override onlyWhenTradeIncepted onlyWithinConfirmationTime {
         address inceptingParty = otherParty();
 
         uint256 confirmationHash = uint256(keccak256(
@@ -116,15 +120,17 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         emit TradeConfirmed(msg.sender, tradeID);
 
         // The initial margin and the termination fee must be deposited into the contract
-        uint256 margin = marginRequirements[msg.sender];
-        uint256 marginAndFee = margin.marginBuffer + margin.terminationFee;
+        uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
 
         require(
             IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
             "Failed to to transfer the initial margin + the termination fee"
         );
-
-        marginRequirements[_irs.fixedRatePayer] = Types.MarginRequirement(_initialBuffer, _initialTerminationFee);
+        
+        marginRequirements[msg.sender] = Types.MarginRequirement({
+            marginBuffer: initialMarginBuffer,
+            terminationFee: initialTerminationFee
+        });
     }
 
     function cancelTrade(
@@ -133,7 +139,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         int _position,
         int256 _paymentAmount,
         string memory _initialSettlementData
-    )  override onlyWhenTradeIncepted {
+    )  override onlyWhenTradeIncepted onlyAfterConfirmationTime {
         address inceptingParty = msg.sender;
 
         uint256 confirmationHash = uint256(keccak256(
@@ -156,8 +162,29 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         emit TradeCanceled(msg.sender, tradeID);
     }
 
-    function initiateSettlement() external {
-        
+    /**
+    * @notice In case of Chainlink ETH Staking Rate, the rateMultiplier = 3. And the result MUST be devided by 10^7
+    *         We assume rates are input in basis point
+    */
+    function initiateSettlement() external onlyCounterparty onlyWhenTradeConfirmed {
+        int256 fixedRate = irs.swapRate * rateMultiplier;
+        int256 floatingRate = benchmark() + irs.spread * rateMultiplier;
+
+        if(fixedRate == floatingRate) {
+            revert nothingToSwap(fixedRate, floatingRate);
+        } else if(fixedRate > floatingRate) {
+            netSettlementAmount = fixedRate * irs.notionalAmount - floatingRate * irs.notionalAmount;
+            receivingParty = irs.floatingRatePayer;
+        } else {
+            netSettlementAmount = floatingRate * irs.notionalAmount - fixedRate * irs.notionalAmount;
+            receivingParty = irs.fixedRatePayer;
+        }
+
+        tradeState = TradeState.Valuation;
+
+        string memory settlementData = Strings.toString(netSettlementAmount);
+
+        emit SettlementRequested(msg.sender, tradeData, settlementData);
     }
     
     function performSettlement(int256 settlementAmount, string memory settlementData) external {
@@ -240,6 +267,21 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
     }
 
     /**---------------------- Internal Private and other view functions ----------------------*/
+    function getInitialMargin() external view returns(uint256) {
+        return initialMarginBuffer;
+    }
+
+    function getInitialTerminationFee() external view returns(uint256) {
+        return initialTerminationFee;
+    }
+
+    function getMarginRequirement(address _account) external view returns(Types.MarginRequirement) {
+        return marginRequirements[_account];
+    }
+
+    function getRateMultiplier() external view returns(uint8) {
+        return rateMultiplier;
+    }
 
     function otherParty() internal view returns(address) {
         return msg.sender == irs.fixedRatePayer ? irs.floatingRatePayer : irs.fixedRatePayer;
