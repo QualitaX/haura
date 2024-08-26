@@ -148,4 +148,6 @@ abstract contract ERC6123StorageWorking {
     uint256 internal netSettlementAmount;
 
     int256 internal rateMultiplier;
+
+    Types.IRSReceipt[] irsReceipt;
 }

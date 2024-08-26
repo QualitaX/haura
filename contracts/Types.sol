@@ -30,4 +30,10 @@ abstract contract Types {
         uint256 marginBuffer;
         uint256 terminationFee;
     }
+
+    struct IRSReceipt {
+        address from;
+        address to;
+        uint256 amount;
+    }
 }

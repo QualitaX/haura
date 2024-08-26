@@ -167,19 +167,6 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
     *         We assume rates are input in basis point
     */
     function initiateSettlement() external onlyCounterparty onlyWhenTradeConfirmed {
-        int256 fixedRate = irs.swapRate * rateMultiplier;
-        int256 floatingRate = benchmark() + irs.spread * rateMultiplier;
-
-        if(fixedRate == floatingRate) {
-            revert nothingToSwap(fixedRate, floatingRate);
-        } else if(fixedRate > floatingRate) {
-            netSettlementAmount = fixedRate * irs.notionalAmount - floatingRate * irs.notionalAmount;
-            receivingParty = irs.floatingRatePayer;
-        } else {
-            netSettlementAmount = floatingRate * irs.notionalAmount - fixedRate * irs.notionalAmount;
-            receivingParty = irs.fixedRatePayer;
-        }
-
         tradeState = TradeState.Valuation;
 
         string memory settlementData = Strings.toString(netSettlementAmount);
@@ -187,8 +174,56 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         emit SettlementRequested(msg.sender, tradeData, settlementData);
     }
     
-    function performSettlement(int256 settlementAmount, string memory settlementData) external {
+    function performSettlement(
+        int256 _settlementAmount,
+        string memory _settlementData
+    ) external onlyWhenValuation {
+        int256 fixedRate = irs.swapRate * rateMultiplier;
+        int256 floatingRate = benchmark() + irs.spread * rateMultiplier;
 
+        tradeState = TradeState.InTransfer;
+
+        if(fixedRate == floatingRate) {
+            revert nothingToSwap(fixedRate, floatingRate);
+        } else if(fixedRate > floatingRate) {
+            netSettlementAmount = fixedRate * irs.notionalAmount - floatingRate * irs.notionalAmount;
+            receivingParty = irs.floatingRatePayer;
+
+            // Needed just to check the input settlement amount
+            require(
+                netSettlementAmount == uint256(_settlementAmount),
+                "invalid settlement amount"
+            );
+
+            // Generates the settlement receipt
+            irsReceipt.push(
+                Types.IRSReceipt({
+                    from: irs.fixedRatePayer,
+                    to: receivingParty,
+                    amount: netSettlementAmount
+                })
+            );
+        } else {
+            netSettlementAmount = floatingRate * irs.notionalAmount - fixedRate * irs.notionalAmount;
+            receivingParty = irs.fixedRatePayer;
+
+            // Needed just to check the input settlement amount
+            require(
+                netSettlementAmount == uint256(_settlementAmount),
+                "invalid settlement amount"
+            );
+
+            // Generates the settlement receipt
+            irsReceipt.push(
+                Types.IRSReceipt({
+                    from: irs.floatingRatePayer,
+                    to: receivingParty,
+                    amount: netSettlementAmount
+                })
+            );
+        }
+
+        emit SettlementEvaluated(msg.sender, netSettlementAmount, _settlementData);
     }
 
 
