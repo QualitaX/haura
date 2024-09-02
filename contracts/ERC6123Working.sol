@@ -23,7 +23,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         Types.IRS memory _irs,
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
-        int256 _rateMultiplier
+        uint256 _rateMultiplier
     ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs) {
         initialMarginBuffer = _initialMarginBuffer;
         initialTerminationFee = _initialTerminationFee;
@@ -47,6 +47,14 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         if(_position != 1 || _position != -1)
             revert invalidPositionValue(_position);
         if(_paymentAmount == 0) revert invalidPaymentAmount(_paymentAmount);
+
+        if(_position == 1) {
+            irs.fixedRatePayer = msg.sender;
+            irs.floatingRatePayer = _withParty;
+        } else {
+            irs.fixedRatePayer = _withParty;
+            irs.floatingRatePayer = msg.sender;
+        }
 
         tradeState = TradeState.Incepted;
 
@@ -76,6 +84,11 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             _initialSettlementData
         );
 
+        marginRequirements[msg.sender] = Types.MarginRequirement({
+            marginBuffer: initialMarginBuffer,
+            terminationFee: initialTerminationFee
+        });
+
         //The initial margin and the termination fee must be deposited into the contract
         uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
 
@@ -83,11 +96,6 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
             "Failed to to transfer the initial margin + the termination fee"
         );
-        
-        marginRequirements[msg.sender] = Types.MarginRequirement({
-            marginBuffer: initialMarginBuffer,
-            terminationFee: initialTerminationFee
-        });
     }
 
     
@@ -119,6 +127,11 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
 
         emit TradeConfirmed(msg.sender, tradeID);
 
+        marginRequirements[msg.sender] = Types.MarginRequirement({
+            marginBuffer: initialMarginBuffer,
+            terminationFee: initialTerminationFee
+        });
+
         // The initial margin and the termination fee must be deposited into the contract
         uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
 
@@ -126,11 +139,6 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
             "Failed to to transfer the initial margin + the termination fee"
         );
-        
-        marginRequirements[msg.sender] = Types.MarginRequirement({
-            marginBuffer: initialMarginBuffer,
-            terminationFee: initialTerminationFee
-        });
     }
 
     function cancelTrade(
@@ -139,7 +147,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         int _position,
         int256 _paymentAmount,
         string memory _initialSettlementData
-    )  override onlyWhenTradeIncepted onlyAfterConfirmationTime {
+    ) external override onlyWhenTradeIncepted onlyAfterConfirmationTime {
         address inceptingParty = msg.sender;
 
         uint256 confirmationHash = uint256(keccak256(
@@ -162,32 +170,29 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         emit TradeCanceled(msg.sender, tradeID);
     }
 
+    function initiateSettlement() external override onlyCounterparty onlyWhenTradeConfirmed {
+        tradeState = TradeState.Valuation;
+
+        emit SettlementRequested(msg.sender, tradeData, settlementData[settlementData.length - 1]);
+    }
+    
     /**
     * @notice In case of Chainlink ETH Staking Rate, the rateMultiplier = 3. And the result MUST be devided by 10^7
     *         We assume rates are input in basis point
     */
-    function initiateSettlement() external onlyCounterparty onlyWhenTradeConfirmed {
-        tradeState = TradeState.Valuation;
-
-        string memory settlementData = Strings.toString(netSettlementAmount);
-
-        emit SettlementRequested(msg.sender, tradeData, settlementData);
-    }
-    
     function performSettlement(
         int256 _settlementAmount,
         string memory _settlementData
-    ) external onlyWhenValuation {
-        int256 fixedRate = irs.swapRate * rateMultiplier;
-        int256 floatingRate = benchmark() + irs.spread * rateMultiplier;
+    ) external override onlyWhenValuation {
+        int256 fixedRate = irs.swapRate;
+        int256 floatingRate = benchmark() + irs.spread;
 
         tradeState = TradeState.InTransfer;
 
         if(fixedRate == floatingRate) {
             revert nothingToSwap(fixedRate, floatingRate);
         } else if(fixedRate > floatingRate) {
-            netSettlementAmount = fixedRate * irs.notionalAmount - floatingRate * irs.notionalAmount;
-            receivingParty = irs.floatingRatePayer;
+            netSettlementAmount = uint256(fixedRate) * irs.notionalAmount - uint256(floatingRate) * irs.notionalAmount;
 
             // Needed just to check the input settlement amount
             require(
@@ -199,13 +204,18 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             irsReceipt.push(
                 Types.IRSReceipt({
                     from: irs.fixedRatePayer,
-                    to: receivingParty,
-                    amount: netSettlementAmount
+                    to: irs.floatingRatePayer,
+                    amount: netSettlementAmount,
+                    timestamp: block.timestamp
                 })
             );
+
+            require(
+                IERC20(irs.settlementCurrency).transfer(irs.floatingRatePayer, netSettlementAmount),
+                "Settlement: transfer failed"
+            );
         } else {
-            netSettlementAmount = floatingRate * irs.notionalAmount - fixedRate * irs.notionalAmount;
-            receivingParty = irs.fixedRatePayer;
+            netSettlementAmount = uint256(floatingRate) * irs.notionalAmount - uint256(fixedRate) * irs.notionalAmount;
 
             // Needed just to check the input settlement amount
             require(
@@ -217,18 +227,27 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             irsReceipt.push(
                 Types.IRSReceipt({
                     from: irs.floatingRatePayer,
-                    to: receivingParty,
-                    amount: netSettlementAmount
+                    to: irs.fixedRatePayer,
+                    amount: netSettlementAmount,
+                    timestamp: block.timestamp
                 })
+            );
+
+            require(
+                IERC20(irs.settlementCurrency).transfer(irs.fixedRatePayer, netSettlementAmount),
+                "Settlement: transfer failed"
             );
         }
 
-        emit SettlementEvaluated(msg.sender, netSettlementAmount, _settlementData);
+        emit SettlementEvaluated(msg.sender, int256(netSettlementAmount), _settlementData);
     }
 
-
-    function afterTransfer(bool success, string memory transactionData) external {
-
+    /**
+    * @notice We don't implement the after transfer function since the transfer of the contract
+    *         net present value is transferred in the `performSettlement function`.
+    */
+    function afterTransfer(bool success, string memory transactionData) external override {
+        revert obseleteFunction();
     }
 
     /**-> NOT CLEAR: Why requesting trade termination after the trade has been settled ? */
@@ -293,12 +312,34 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             )
         ));
 
-        if(pendingRequests[confirmationhash] != pendingRequestParty)
-            revert inconsistentTradeDataOrWrongAddress(pendingRequestParty, confirmationhash);
+        if(pendingRequests[confirmationHash] != pendingRequestParty)
+            revert inconsistentTradeDataOrWrongAddress(pendingRequestParty, confirmationHash);
 
-        delete pendingRequests[confirmationhash];
+        delete pendingRequests[confirmationHash];
 
         emit TradeTerminationCanceled(msg.sender, _tradeId, _terminationTerms);
+    }
+
+    /**----------------------------- Transacctional functions --------------------------------*/
+    /**
+    * @notice Check that there payer has enough initial margin to make the transfer in case of
+    *         insufficient balance during settlement
+    * @param _settlementAmount The net settlement amount to be transferred
+    */
+    function _enoughMargin(address _payer, uint256 _settlementAmount) private view returns(bool) {
+         uint256 balance = IERC20(irs.settlementCurrency).balanceOf(_payer);
+
+         if (balance < _settlementAmount) {
+            uint256 buffer = marginRequirements[_payer].marginBuffer;
+
+            if(buffer < _settlementAmount) {
+                return false;
+            } else {
+                return true;
+            }
+         } else {
+            return true;
+         }
     }
 
     /**---------------------- Internal Private and other view functions ----------------------*/
@@ -310,11 +351,11 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         return initialTerminationFee;
     }
 
-    function getMarginRequirement(address _account) external view returns(Types.MarginRequirement) {
+    function getMarginRequirement(address _account) external view returns(Types.MarginRequirement memory) {
         return marginRequirements[_account];
     }
 
-    function getRateMultiplier() external view returns(uint8) {
+    function getRateMultiplier() external view returns(uint256) {
         return rateMultiplier;
     }
 

@@ -128,18 +128,17 @@ abstract contract ERC6123StorageWorking {
 
     error invalidTradeID(string _tradeID);
     error nothingToSwap(int256 _fixedRate, int256 _floatingRate);
-    error invalidPaymentAmount(uint256 _amount);
+    error invalidPaymentAmount(int256 _amount);
     error invalidPositionValue(int256 _position);
     error mustBeOtherParty(address _withParty, address _otherParty);
     error cannotInceptWithYourself(address _caller, address _withParty);
     error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
     error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
+    error obseleteFunction();
 
     string tradeData;
-    string settlementData;
+    string[] internal settlementData;
     string public tradeID;
-
-    address receivingParty;
 
     uint256 internal initialMarginBuffer;
     uint256 internal initialTerminationFee;
@@ -147,7 +146,7 @@ abstract contract ERC6123StorageWorking {
     uint256 internal confirmationTime;
     uint256 internal netSettlementAmount;
 
-    int256 internal rateMultiplier;
+    uint256 internal rateMultiplier;
 
     Types.IRSReceipt[] irsReceipt;
 }

@@ -35,5 +35,6 @@ abstract contract Types {
         address from;
         address to;
         uint256 amount;
+        uint256 timestamp;
     }
 }

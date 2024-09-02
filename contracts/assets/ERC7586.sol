@@ -9,7 +9,6 @@ import "../Types.sol";
 contract ERC7586 is IERC7586, IRSToken {
     int256 internal lockedReferenceRate;
     uint256 netSettlementAmount;
-    address payable receivingParty;
 
     AggregatorV3Interface internal ETHStakingFeed;
 
@@ -94,7 +93,7 @@ contract ERC7586 is IERC7586, IRSToken {
         return stakingRate;
     }
 
-    function swap() external returns(bool) {
+    function swap() public returns(bool) {
 
     }
 
