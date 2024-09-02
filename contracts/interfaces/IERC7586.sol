@@ -8,7 +8,7 @@ interface IERC7586 {
     * @param _amount the interest difference to be transferred
     * @param _account the recipient account to send the interest difference to. MUST be either the `payer` or the `receiver`
     */
-    event Swap(uint256 _amount, address _account);
+    event Swap(address _account, uint256 _amount);
 
     /**
     * @notice MUST be emitted when the swap contract is terminated

@@ -135,6 +135,7 @@ abstract contract ERC6123StorageWorking {
     error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
     error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
     error obseleteFunction();
+    error notEnoughMarginBuffer(uint256 _settlementAmount, uint256 _availableMarginBuffer);
 
     string tradeData;
     string[] internal settlementData;
@@ -144,9 +145,7 @@ abstract contract ERC6123StorageWorking {
     uint256 internal initialTerminationFee;
     uint256 internal inceptingTime;
     uint256 internal confirmationTime;
-    uint256 internal netSettlementAmount;
-
     uint256 internal rateMultiplier;
 
-    Types.IRSReceipt[] irsReceipt;
+    Types.IRSReceipt[] irsReceipt; 
 }

@@ -187,12 +187,14 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         int256 fixedRate = irs.swapRate;
         int256 floatingRate = benchmark() + irs.spread;
 
-        tradeState = TradeState.InTransfer;
+        tradeState = TradeState.Settled;
 
         if(fixedRate == floatingRate) {
             revert nothingToSwap(fixedRate, floatingRate);
         } else if(fixedRate > floatingRate) {
             netSettlementAmount = uint256(fixedRate) * irs.notionalAmount - uint256(floatingRate) * irs.notionalAmount;
+            receiverParty = irs.floatingRatePayer;
+            payerParty = irs.fixedRatePayer;
 
             // Needed just to check the input settlement amount
             require(
@@ -204,18 +206,15 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             irsReceipt.push(
                 Types.IRSReceipt({
                     from: irs.fixedRatePayer,
-                    to: irs.floatingRatePayer,
+                    to: receiverParty,
                     amount: netSettlementAmount,
                     timestamp: block.timestamp
                 })
             );
-
-            require(
-                IERC20(irs.settlementCurrency).transfer(irs.floatingRatePayer, netSettlementAmount),
-                "Settlement: transfer failed"
-            );
         } else {
             netSettlementAmount = uint256(floatingRate) * irs.notionalAmount - uint256(fixedRate) * irs.notionalAmount;
+            receiverParty = irs.fixedRatePayer;
+            payerParty = irs.floatingRatePayer;
 
             // Needed just to check the input settlement amount
             require(
@@ -227,17 +226,14 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             irsReceipt.push(
                 Types.IRSReceipt({
                     from: irs.floatingRatePayer,
-                    to: irs.fixedRatePayer,
+                    to: receiverParty,
                     amount: netSettlementAmount,
                     timestamp: block.timestamp
                 })
             );
-
-            require(
-                IERC20(irs.settlementCurrency).transfer(irs.fixedRatePayer, netSettlementAmount),
-                "Settlement: transfer failed"
-            );
         }
+
+        _checkBalanceAndSwap(payerParty, netSettlementAmount);
 
         emit SettlementEvaluated(msg.sender, int256(netSettlementAmount), _settlementData);
     }
@@ -246,7 +242,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
     * @notice We don't implement the after transfer function since the transfer of the contract
     *         net present value is transferred in the `performSettlement function`.
     */
-    function afterTransfer(bool success, string memory transactionData) external override {
+    function afterTransfer(bool /**success*/, string memory /*transactionData*/) external pure override {
         revert obseleteFunction();
     }
 
@@ -322,23 +318,29 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
 
     /**----------------------------- Transacctional functions --------------------------------*/
     /**
-    * @notice Check that there payer has enough initial margin to make the transfer in case of
-    *         insufficient balance during settlement
-    * @param _settlementAmount The net settlement amount to be transferred
+    * @notice Make a CALL to ERC-7586 swap function. Check that the payer has enough initial
+    *         margin to make the transfer in case of insufficient balance during settlement
+    * @param _payer The swap payer account address
+    * @param _settlementAmount The net settlement amount to be transferred (in ether unit)
     */
-    function _enoughMargin(address _payer, uint256 _settlementAmount) private view returns(bool) {
+    function _checkBalanceAndSwap(address _payer, uint256 _settlementAmount) private {
          uint256 balance = IERC20(irs.settlementCurrency).balanceOf(_payer);
 
          if (balance < _settlementAmount) {
             uint256 buffer = marginRequirements[_payer].marginBuffer;
 
             if(buffer < _settlementAmount) {
-                return false;
+                revert notEnoughMarginBuffer(_settlementAmount, buffer);
             } else {
-                return true;
+                marginRequirements[_payer].marginBuffer = buffer - _settlementAmount;
+                transferMode = 1;
+
+                swap();
+
+                transferMode = 0;
             }
          } else {
-            return true;
+            swap();
          }
     }
 

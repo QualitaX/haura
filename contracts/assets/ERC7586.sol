@@ -6,11 +6,18 @@ import "../interfaces/IERC7586.sol";
 import "./IRSToken.sol";
 import "../Types.sol";
 
-contract ERC7586 is IERC7586, IRSToken {
+abstract contract ERC7586 is IERC7586, IRSToken {
     int256 internal lockedReferenceRate;
-    uint256 netSettlementAmount;
+    uint256 internal netSettlementAmount;
+    uint8 internal transferMode;  // 0 -> transfer from payer account (transferFrom), 1 -> transfer from the contract balance (transfer)
+    uint8 internal swapCount;
+
+    address internal receiverParty;
+    address internal payerParty;
 
     AggregatorV3Interface internal ETHStakingFeed;
+
+    error invalidTransferMode(uint8 _transferMode);
 
     constructor(
         string memory _irsTokenName,
@@ -93,11 +100,43 @@ contract ERC7586 is IERC7586, IRSToken {
         return stakingRate;
     }
 
+    /**
+    * @notice Transfer the net settlement amount to the receiver account.
+    *         if `transferMode = 0` (enough balance in the payer account), transfer from the payer balance
+    *         if `transferMode = 1` (not enough balance in the payer account), transfer from the payer margin buffer
+    */
     function swap() public returns(bool) {
+        uint8 _swapCount = swapCount;
+        swapCount = _swapCount + 1;
+        if(swapCount > irs.settlementDates.length) revert("All Swaps Done");
 
+        burn(irs.fixedRatePayer, 1 ether);
+        burn(irs.floatingRatePayer, 1 ether);
+
+        uint256 settlementAmount = netSettlementAmount * 1 ether / 10_000;
+
+        if (transferMode == 0) {
+            IERC20(irs.settlementCurrency).transferFrom(payerParty, receiverParty, settlementAmount);
+        } else if (transferMode == 1) {
+            IERC20(irs.settlementCurrency).transfer(receiverParty, settlementAmount);
+        } else {
+            revert invalidTransferMode(transferMode);
+        }
+
+        emit Swap(receiverParty, settlementAmount);
+
+        // Prevents the transfer of funds without ERC6123 contrat to have set
+        // the receiver account during the settlement process 
+        receiverParty = address(0);
+
+        return true;
     }
 
     function terminateSwap() external {
 
+    }
+
+    function getSwapCount() external view returns(uint8) {
+        return swapCount;
     }
 }
