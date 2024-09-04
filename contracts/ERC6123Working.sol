@@ -318,10 +318,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         uint256 fees = marginRequirements[terminationReceiver].terminationFee + marginRequirements[terminationPayer].terminationFee;
         terminationAmount = buffer + fees;
 
-        marginRequirements[terminationReceiver].marginBuffer = 0;
-        marginRequirements[terminationReceiver].terminationFee = 0;
-        marginRequirements[terminationPayer].marginBuffer = 0;
-        marginRequirements[terminationPayer].terminationFee = 0;
+        _updateMargin(terminationPayer, terminationReceiver);
 
         terminateSwap();
 
@@ -380,6 +377,13 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
     }
 
     /**---------------------- Internal Private and other view functions ----------------------*/
+    function _updateMargin(address _payer, address _receiver) private {
+        marginRequirements[_payer].marginBuffer = 0;
+        marginRequirements[_payer].terminationFee = 0;
+        marginRequirements[_receiver].marginBuffer = 0;
+        marginRequirements[_receiver].terminationFee = 0;
+    }
+
     function getTradeState() external view returns(TradeState) {
         return tradeState;
     }

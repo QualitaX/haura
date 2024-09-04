@@ -28,7 +28,6 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
 
     event RequestReferenceRate(bytes32 indexed requestId, int256 referenceRate);
 
-    error invalidTerminationRaceiver(address _receiver);
     error invalidTransferMode(uint8 _transferMode);
 
     constructor(
@@ -186,8 +185,6 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
     }
 
     function terminateSwap() public {
-        if(terminationReceiver == address(0)) revert invalidTerminationRaceiver(address(0));
-
         IERC20(irs.settlementCurrency).transfer(terminationReceiver, terminationAmount * 1 ether);
     }
 
