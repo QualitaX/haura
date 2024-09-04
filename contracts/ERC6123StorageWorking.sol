@@ -59,7 +59,11 @@ abstract contract ERC6123StorageWorking {
         /*
          * Terminated.
          */
-        Terminated
+        Terminated,
+        /**
+        * Has reached Maturity 
+        */
+       Matured
     }
 
     modifier onlyWhenTradeInactive() {
@@ -143,6 +147,7 @@ abstract contract ERC6123StorageWorking {
         _;
     }
 
+    mapping(address => uint256) internal marginCalls;
     mapping(uint256 => address) internal pendingRequests;
     mapping(address => Types.MarginRequirement) internal marginRequirements;
 

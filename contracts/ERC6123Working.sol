@@ -245,11 +245,16 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
 
         uint8 _swapCount = swapCount;
         swapCount = _swapCount + 1;
-        if(swapCount > irs.settlementDates.length) revert allSettlementsDone();
+
+        if(swapCount < irs.settlementDates.length) {
+            tradeState = TradeState.Settled;
+        } else if (swapCount == irs.settlementDates.length) {
+            tradeState = TradeState.Matured;
+        } else {
+            revert allSettlementsDone();
+        }
 
         _checkBalanceAndSwap(payerParty, netSettlementAmount);
-
-        tradeState = TradeState.Settled;
 
         emit SettlementEvaluated(msg.sender, int256(netSettlementAmount), _settlementData);
     }
@@ -306,6 +311,21 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             revert inconsistentTradeDataOrWrongAddress(pendingRequestParty, confirmationhash);
 
         delete pendingRequests[confirmationhash];
+
+        address terminationPayer = otherParty();
+        terminationReceiver = msg.sender;
+        uint256 buffer = marginRequirements[terminationReceiver].marginBuffer + marginRequirements[terminationPayer].marginBuffer;
+        uint256 fees = marginRequirements[terminationReceiver].terminationFee + marginRequirements[terminationPayer].terminationFee;
+        terminationAmount = buffer + fees;
+
+        marginRequirements[terminationReceiver].marginBuffer = 0;
+        marginRequirements[terminationReceiver].terminationFee = 0;
+        marginRequirements[terminationPayer].marginBuffer = 0;
+        marginRequirements[terminationPayer].terminationFee = 0;
+
+        terminateSwap();
+
+        tradeState = TradeState.Terminated;
     }
 
     function cancelTradeTermination(
@@ -349,6 +369,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
                 revert notEnoughMarginBuffer(_settlementAmount, buffer);
             } else {
                 marginRequirements[_payer].marginBuffer = buffer - _settlementAmount;
+                marginCalls[_payer] = _settlementAmount;
                 transferMode = 1;
                 swap();
                 transferMode = 0;
@@ -359,12 +380,32 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
     }
 
     /**---------------------- Internal Private and other view functions ----------------------*/
+    function getTradeState() external view returns(TradeState) {
+        return tradeState;
+    }
+
+    function getTradeID() external view returns(string memory) {
+        return tradeID;
+    }
+
+    function getInceptingTime() external view returns(uint256) {
+        return inceptingTime;
+    }
+
+    function getConfirmationTime() external view returns(uint256) {
+        return confirmationTime;
+    }
+
     function getInitialMargin() external view returns(uint256) {
         return initialMarginBuffer;
     }
 
     function getInitialTerminationFee() external view returns(uint256) {
         return initialTerminationFee;
+    }
+
+    function getMarginCall(address _account) external view returns(uint256) {
+        return marginCalls[_account];
     }
 
     function getMarginRequirement(address _account) external view returns(Types.MarginRequirement memory) {
