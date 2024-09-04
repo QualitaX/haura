@@ -204,7 +204,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
 
             // Needed just to check the input settlement amount
             require(
-                netSettlementAmount == uint256(_settlementAmount),
+                netSettlementAmount * 1 ether / 10_000 == uint256(_settlementAmount),
                 "invalid settlement amount"
             );
 
@@ -220,13 +220,13 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
                 })
             );
         } else {
-            netSettlementAmount = uint256(floatingRate) * irs.notionalAmount - uint256(fixedRate) * irs.notionalAmount;
+            netSettlementAmount = floatingPayment - fixedPayment;
             receiverParty = irs.fixedRatePayer;
             payerParty = irs.floatingRatePayer;
 
             // Needed just to check the input settlement amount
             require(
-                netSettlementAmount == uint256(_settlementAmount),
+                netSettlementAmount * 1 ether / 10_000 == uint256(_settlementAmount),
                 "invalid settlement amount"
             );
 

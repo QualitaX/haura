@@ -111,7 +111,7 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
     * @notice make a API call to get the reference rate
     * @param _URL the URL to make the API call from
     * @param _path the path to the reference rate in the json response
-    * @param _multiplier the exponent of the multiplier. => referenceRate = 10^(multiplier)
+    * @param _multiplier the multiplier. => referenceRate is mutiplied ny this number
     */
     function requestReferenceRate(
         string memory _URL,
@@ -126,7 +126,7 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
 
         req._add("get", _URL);
         req._add("path", _path);
-        req._addInt("times", int256(10**(_multiplier)));
+        req._addInt("times", int256(_multiplier));
 
         // send the request
         return _sendChainlinkRequest(req, fee);
@@ -175,8 +175,8 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
 
         emit Swap(receiverParty, settlementAmount);
 
-        // Prevents the transfer of funds without ERC6123 contrat to have set
-        // the receiver account during the settlement process 
+        // Prevents the transfer of funds from the outside of ERC6123 contrat
+        // This is possible because the receipient of the transferFrom function in ERC20 must not be the zero address
         receiverParty = address(0);
 
         return true;
@@ -188,5 +188,17 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
 
     function getSwapCount() external view returns(uint8) {
         return swapCount;
+    }
+
+    /**
+     * @notice Allow withdraw of Link tokens from the contract
+     * !!!!!   SECURE THIS FUNCTION FROM BEING CALLED BY NOT ALLOWED USERS !!!!!
+     */
+    function withdrawLink() public {
+        LinkTokenInterface link = LinkTokenInterface(_chainlinkTokenAddress());
+        require(
+            link.transfer(msg.sender, link.balanceOf(address(this))),
+            "Unable to transfer"
+        );
     }
 }
