@@ -34,6 +34,9 @@ abstract contract Types {
     struct IRSReceipt {
         address from;
         address to;
-        uint256 amount;
+        uint256 netAmount;
+        uint256 timestamp;
+        uint256 fixedRatePayment;
+        uint256 floatingRatePayment;
     }
 }
