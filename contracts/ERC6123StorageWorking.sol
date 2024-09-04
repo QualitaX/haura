@@ -4,6 +4,19 @@ pragma solidity ^0.8.19;
 import "./Types.sol";
 
 abstract contract ERC6123StorageWorking {
+    error obseleteFunction();
+    error allSettlementsDone();
+    error stateMustBeConfirmedOrSettled();
+    error invalidTradeID(string _tradeID);
+    error invalidPaymentAmount(int256 _amount);
+    error invalidPositionValue(int256 _position);
+    error nothingToSwap(int256 _fixedRate, int256 _floatingRate);
+    error mustBeOtherParty(address _withParty, address _otherParty);
+    error cannotInceptWithYourself(address _caller, address _withParty);
+    error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
+    error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
+    error notEnoughMarginBuffer(uint256 _settlementAmount, uint256 _availableMarginBuffer);
+
     /*
      * Trade States
      */
@@ -105,6 +118,15 @@ abstract contract ERC6123StorageWorking {
         _;
     }
 
+    modifier onlyWhenConfirmedOrSettled() {
+        if(tradeState != TradeState.Confirmed) {
+            if(tradeState != TradeState.Settled) {
+                revert stateMustBeConfirmedOrSettled();
+            }
+        }
+        _;
+    }
+
     modifier onlyWithinConfirmationTime() {
         require(
             block.timestamp - inceptingTime <= confirmationTime,
@@ -126,17 +148,6 @@ abstract contract ERC6123StorageWorking {
 
     TradeState internal tradeState;
 
-    error invalidTradeID(string _tradeID);
-    error nothingToSwap(int256 _fixedRate, int256 _floatingRate);
-    error invalidPaymentAmount(int256 _amount);
-    error invalidPositionValue(int256 _position);
-    error mustBeOtherParty(address _withParty, address _otherParty);
-    error cannotInceptWithYourself(address _caller, address _withParty);
-    error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
-    error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
-    error obseleteFunction();
-    error notEnoughMarginBuffer(uint256 _settlementAmount, uint256 _availableMarginBuffer);
-
     string tradeData;
     string[] internal settlementData;
     string public tradeID;
@@ -147,5 +158,5 @@ abstract contract ERC6123StorageWorking {
     uint256 internal confirmationTime;
     uint256 internal rateMultiplier;
 
-    Types.IRSReceipt[] irsReceipt; 
+    Types.IRSReceipt[] internal irsReceipts;
 }

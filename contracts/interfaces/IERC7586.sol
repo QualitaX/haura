@@ -5,8 +5,8 @@ interface IERC7586 {
     //-------------------------- Events --------------------------
     /**
     * @notice MUST be emitted when interest rates are swapped
-    * @param _amount the interest difference to be transferred
     * @param _account the recipient account to send the interest difference to. MUST be either the `payer` or the `receiver`
+    * @param _amount the interest difference to be transferred
     */
     event Swap(address _account, uint256 _amount);
 

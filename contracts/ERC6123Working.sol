@@ -21,10 +21,13 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         string memory _irsTokenName,
         string memory _irsTokenSymbol,
         Types.IRS memory _irs,
+        address _linkToken,
+        address _chainlinkOracle,
+        bytes32 _jobId,
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
         uint256 _rateMultiplier
-    ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs) {
+    ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs, _linkToken, _chainlinkOracle, _jobId) {
         initialMarginBuffer = _initialMarginBuffer;
         initialTerminationFee = _initialTerminationFee;
         confirmationTime = 1 hours;
@@ -96,6 +99,8 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
             "Failed to to transfer the initial margin + the termination fee"
         );
+
+        return tradeID;
     }
 
     
@@ -170,10 +175,11 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
         emit TradeCanceled(msg.sender, tradeID);
     }
 
-    function initiateSettlement() external override onlyCounterparty onlyWhenTradeConfirmed {
-        tradeState = TradeState.Valuation;
-
-        emit SettlementRequested(msg.sender, tradeData, settlementData[settlementData.length - 1]);
+    /**
+    * @notice We don't implement the `initiateSettlement` function since this is done automatically
+    */
+    function initiateSettlement() external view override onlyCounterparty onlyWhenTradeConfirmed {
+        revert obseleteFunction();
     }
     
     /**
@@ -183,16 +189,16 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
     function performSettlement(
         int256 _settlementAmount,
         string memory _settlementData
-    ) external override onlyWhenValuation {
+    ) external override onlyWhenConfirmedOrSettled {
         int256 fixedRate = irs.swapRate;
         int256 floatingRate = benchmark() + irs.spread;
-
-        tradeState = TradeState.Settled;
+        uint256 fixedPayment = uint256(fixedRate) * irs.notionalAmount;
+        uint256 floatingPayment = uint256(floatingRate) * irs.notionalAmount;
 
         if(fixedRate == floatingRate) {
             revert nothingToSwap(fixedRate, floatingRate);
         } else if(fixedRate > floatingRate) {
-            netSettlementAmount = uint256(fixedRate) * irs.notionalAmount - uint256(floatingRate) * irs.notionalAmount;
+            netSettlementAmount = fixedPayment - floatingPayment;
             receiverParty = irs.floatingRatePayer;
             payerParty = irs.fixedRatePayer;
 
@@ -203,12 +209,14 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             );
 
             // Generates the settlement receipt
-            irsReceipt.push(
+            irsReceipts.push(
                 Types.IRSReceipt({
                     from: irs.fixedRatePayer,
                     to: receiverParty,
-                    amount: netSettlementAmount,
-                    timestamp: block.timestamp
+                    netAmount: netSettlementAmount,
+                    timestamp: block.timestamp,
+                    fixedRatePayment: fixedPayment,
+                    floatingRatePayment: floatingPayment
                 })
             );
         } else {
@@ -223,23 +231,31 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             );
 
             // Generates the settlement receipt
-            irsReceipt.push(
+            irsReceipts.push(
                 Types.IRSReceipt({
                     from: irs.floatingRatePayer,
                     to: receiverParty,
-                    amount: netSettlementAmount,
-                    timestamp: block.timestamp
+                    netAmount: netSettlementAmount,
+                    timestamp: block.timestamp,
+                    fixedRatePayment: fixedPayment,
+                    floatingRatePayment: floatingPayment
                 })
             );
         }
 
+        uint8 _swapCount = swapCount;
+        swapCount = _swapCount + 1;
+        if(swapCount > irs.settlementDates.length) revert allSettlementsDone();
+
         _checkBalanceAndSwap(payerParty, netSettlementAmount);
+
+        tradeState = TradeState.Settled;
 
         emit SettlementEvaluated(msg.sender, int256(netSettlementAmount), _settlementData);
     }
 
     /**
-    * @notice We don't implement the after transfer function since the transfer of the contract
+    * @notice We don't implement the `afterTransfer` function since the transfer of the contract
     *         net present value is transferred in the `performSettlement function`.
     */
     function afterTransfer(bool /**success*/, string memory /*transactionData*/) external pure override {
@@ -334,9 +350,7 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
             } else {
                 marginRequirements[_payer].marginBuffer = buffer - _settlementAmount;
                 transferMode = 1;
-
                 swap();
-
                 transferMode = 0;
             }
          } else {
@@ -367,5 +381,9 @@ contract ERC6123Working is IERC6123, ERC6123StorageWorking, ERC7586 {
 
     function otherParty(address _account) internal view returns(address) {
         return _account == irs.fixedRatePayer ? irs.floatingRatePayer : irs.fixedRatePayer;
+    }
+
+    function getIRSReceipts() external view returns(Types.IRSReceipt[] memory) {
+        return irsReceipts;
     }
 }
