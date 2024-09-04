@@ -14,11 +14,13 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
     int256 internal referenceRate;
     int256 internal lockedReferenceRate;
     uint256 internal netSettlementAmount;
+    uint256 internal terminationAmount;
     uint8 internal transferMode;  // 0 -> transfer from payer account (transferFrom), 1 -> transfer from the contract balance (transfer)
     uint8 internal swapCount;
 
     address internal receiverParty;
     address internal payerParty;
+    address internal terminationReceiver;
 
     AggregatorV3Interface internal ETHStakingFeed;
     bytes32 private jobId;
@@ -182,8 +184,8 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient {
         return true;
     }
 
-    function terminateSwap() external {
-
+    function terminateSwap() public {
+        IERC20(irs.settlementCurrency).transfer(terminationReceiver, terminationAmount * 1 ether);
     }
 
     function getSwapCount() external view returns(uint8) {
