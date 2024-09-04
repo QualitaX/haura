@@ -13,7 +13,6 @@ import "../Types.sol";
 */
 contract IRSToken is IERC20 {
     Types.IRS internal irs;
-    Types.SettlementReceipt internal settlementReceipt;
 
     modifier onlyBeforeMaturity() {
         require(
