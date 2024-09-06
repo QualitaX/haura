@@ -1,0 +1,49 @@
+const hre = require("hardhat");
+
+async function main() {
+    let [deployer, account, ...accounts] = await hre.ethers.getSigners();
+    let zeroAddress = "0x0000000000000000000000000000000000000000";
+    let jobId = "ca98366cc7314957b8c012c72f05aeeb";
+
+    const irs = {
+        fixedRatePayer: deployer.address,
+        floatingRatePayer: account.address,
+        oracleContractForBenchmark: hre.ethers.ZeroAddress,
+        settlementCurrency: hre.ethers.ZeroAddress,
+        ratesDecimals: 1,
+        dayCountBasis: 0,
+        swapRate: 100,
+        spread: 0,
+        notionalAmount: 1000,
+        settlementFrequency: 360,
+        startingDate: Date.now(),
+        maturityDate: Date.now() + 36000,
+        settlementDates: [Date.now()+2000, Date.now()+4000]
+    }
+
+    console.log("Start deployment");
+
+    const SDC = await hre.ethers.getContractFactory("ERC6123");
+    const sdc = await SDC.deploy(
+        "QualitaX Token",
+        "QTX",
+        irs,
+        "0x779877A7B0D9E8603169DdbD7836e478b4624789",
+        "0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD",
+        jobId,
+        100,
+        100,
+        1
+    );
+    await sdc.waitForDeployment();
+    //let count = await sdc.getSwapCount();
+    //console.log("token name:", count);
+    console.log("SDC contract at: ", sdc.target);
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error);
+        process.exit(1);
+});

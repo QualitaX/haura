@@ -2,7 +2,6 @@
 pragma solidity ^0.8.19;
 abstract contract Types {
     struct IRS {
-        address irsContract;
         address fixedRatePayer;
         address floatingRatePayer;
         address oracleContractForBenchmark;
