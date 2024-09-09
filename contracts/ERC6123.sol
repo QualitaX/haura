@@ -45,10 +45,11 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
 
         if(inceptor == _withParty)
             revert cannotInceptWithYourself(msg.sender, _withParty);
-        if(_withParty != irs.fixedRatePayer || _withParty != irs.floatingRatePayer)
-            revert mustBePayerOrReceiver(_withParty, irs.fixedRatePayer, irs.floatingRatePayer);
-        if(_position != 1 || _position != -1)
-            revert invalidPositionValue(_position);
+        require(
+            _withParty != irs.fixedRatePayer || _withParty != irs.floatingRatePayer,
+            "counterparty must be payer or receiver"
+        );
+        require(_position != 1 || _position != -1, "invalid position");
         if(_paymentAmount == 0) revert invalidPaymentAmount(_paymentAmount);
 
         if(_position == 1) {
@@ -96,8 +97,8 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
 
         require(
-            IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
-            "Failed to to transfer the initial margin + the termination fee"
+            IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
+            "Failed to transfer the initial margin + the termination fee"
         );
 
         return tradeID;

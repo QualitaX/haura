@@ -55,6 +55,10 @@ contract IRSToken is IERC20 {
         return _totalSupply;
     }
 
+    function maxSupply() public view returns(uint256) {
+        return _maxSupply;
+    }
+
     function balanceOf(address account) public view virtual override returns (uint256) {
         return _balances[account];
     }
