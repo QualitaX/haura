@@ -16,10 +16,12 @@ abstract contract Types {
         uint256 maturityDate;
         uint256[] settlementDates;
     }
+
     struct MarginRequirement {
         uint256 marginBuffer;
         uint256 terminationFee;
     }
+    
     struct IRSReceipt {
         address from;
         address to;

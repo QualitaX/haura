@@ -139,14 +139,6 @@ abstract contract ERC6123Storage {
         _;
     }
 
-    modifier onlyAfterConfirmationTime() {
-        require(
-            block.timestamp - inceptingTime > confirmationTime,
-            "Wait till confirmation time is over"
-        );
-        _;
-    }
-
     mapping(address => uint256) internal marginCalls;
     mapping(uint256 => address) internal pendingRequests;
     mapping(address => Types.MarginRequirement) internal marginRequirements;

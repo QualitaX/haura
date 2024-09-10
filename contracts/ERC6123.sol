@@ -153,7 +153,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         int _position,
         int256 _paymentAmount,
         string memory _initialSettlementData
-    ) external override onlyWhenTradeIncepted onlyAfterConfirmationTime {
+    ) external override onlyWhenTradeIncepted {
         address inceptingParty = msg.sender;
 
         uint256 confirmationHash = uint256(keccak256(

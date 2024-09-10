@@ -1,6 +1,7 @@
 const chai = require("chai");
 const chaiAsPromised = require("chai-as-promised");
 const hre = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -176,7 +177,7 @@ describe("Interest Rate Swap: IRS Token", async () => {
     });
 });
 
-describe("Interest Rate Swap: Trade life cycle", async () => {
+describe("Interest Rate Swap: Trade Initiation Phase", async () => {
     let irs;
     let account1;
     let account2;
@@ -254,7 +255,7 @@ describe("Interest Rate Swap: Trade life cycle", async () => {
         expect(contractBalance.toString()).to.equal(balance.toString());
 
         expect(state).to.equal(TradeState.Incepeted);
-        expect(inceptTx).to.emit(contract, "TradeIncepted");
+        await expect(inceptTx).to.emit(contract, "TradeIncepted");
         expect(Number(margins.marginBuffer)).to.equal(initialMargin);
         expect(Number(margins.terminationFee)).to.equal(terminationFee);
     });
@@ -316,13 +317,66 @@ describe("Interest Rate Swap: Trade life cycle", async () => {
         let contractBalance = await settlementToken.balanceOf(contract.target);
 
         expect(state).to.equal(TradeState.Confirmed);
-        expect(confirmTx).to.emit(contract, "TradeIncepted");
+        await expect(confirmTx).to.emit(contract, "TradeConfirmed");
         expect(Number(margins.marginBuffer)).to.equal(initialMargin);
         expect(Number(margins.terminationFee)).to.equal(terminationFee);
         expect(
             contractBalance.toString()
         ).to.equal(
             margin
+        );
+    });
+
+    it("cannot confirm a trade after confirmation time", async () => {
+        await settlementToken.connect(account1).mint(account1.address, margin);
+        await settlementToken.connect(account2).mint(account2.address, margin);
+        let balance = await settlementToken.balanceOf(account1.address);
+        await settlementToken.connect(account1).approve(contract.target, balance);
+        await settlementToken.connect(account2).approve(contract.target, balance);
+
+        let inceptingTime = Date.now();
+        await contract.connect(account1).inceptTrade(account2.address, "tradeData", longPosition, paymentAmount, "settlementData");
+        await time.increaseTo(inceptingTime + 3700); // increase time over the confirmation time
+
+        expect(
+            contract.connect(account2).confirmTrade(account1.address, "tradeData", shortPosition, -paymentAmount, "settlementData")
+        ).to.rejectedWith(
+            Error,
+            "VM Exception while processing transaction: reverted with reason string 'Confimartion time is over'"
+        );
+    });
+
+    it("cancel a trade", async () => {
+        await settlementToken.connect(account1).mint(account1.address, margin);
+        await settlementToken.connect(account2).mint(account2.address, margin);
+        let balance = await settlementToken.balanceOf(account1.address);
+        await settlementToken.connect(account1).approve(contract.target, balance);
+        await settlementToken.connect(account2).approve(contract.target, balance);
+
+        await contract.connect(account1).inceptTrade(account2.address, "tradeData", longPosition, paymentAmount, "settlementData");
+        let tx = await contract.connect(account1).cancelTrade(account2.address, "tradeData", longPosition, paymentAmount, "settlementData");
+
+        let state = await contract.getTradeState();
+
+        await expect(tx).to.emit(contract, "TradeCanceled");
+        expect(state).to.equal(TradeState.Inactive);
+    });
+
+    itw("cannot cancel a trade after confirmation", async () => {
+        await settlementToken.connect(account1).mint(account1.address, margin);
+        await settlementToken.connect(account2).mint(account2.address, margin);
+        let balance = await settlementToken.balanceOf(account1.address);
+        await settlementToken.connect(account1).approve(contract.target, balance);
+        await settlementToken.connect(account2).approve(contract.target, balance);
+
+        await contract.connect(account1).inceptTrade(account2.address, "tradeData", longPosition, paymentAmount, "settlementData");
+        await contract.connect(account2).confirmTrade(account1.address, "tradeData", shortPosition, -paymentAmount, "settlementData");
+
+        expect(
+            contract.connect(account1).cancelTrade(account2.address, "tradeData", longPosition, paymentAmount, "settlementData")
+        ).to.rejectedWith(
+            Error,
+            "VM Exception while processing transaction: reverted with reason string 'Trade state is not 'Incepted'.'"
         );
     });
 });
