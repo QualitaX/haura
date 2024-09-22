@@ -9,6 +9,11 @@ import "./assets/ERC7586.sol";
 import "./Types.sol";
 
 contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
+    using Chainlink for Chainlink.Request;
+
+    event referenceRateFetched();
+    event RequestReferenceRate(bytes32 indexed requestId, int256 referenceRate);
+
     modifier onlyCounterparty() {
         require(
             msg.sender == irs.fixedRatePayer || msg.sender == irs.floatingRatePayer,
@@ -27,11 +32,14 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
         uint256 _rateMultiplier
-    ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs, _linkToken, _chainlinkOracle, bytes32(abi.encodePacked(_jobId))) {
+    ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs, _linkToken, _chainlinkOracle) {
         initialMarginBuffer = _initialMarginBuffer;
         initialTerminationFee = _initialTerminationFee;
         confirmationTime = 1 hours;
         rateMultiplier = _rateMultiplier;
+
+        jobId = bytes32(abi.encodePacked(_jobId));
+        fee = (1 * LINK_DIVISIBILITY) / 10;  // 0,1 * 10**18 (Varies by network and job)
     }
 
     function inceptTrade(
@@ -190,11 +198,11 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     function performSettlement(
         int256 _settlementAmount,
         string memory _settlementData
-    ) external override onlyWhenConfirmedOrSettled {
+    ) public override onlyWhenConfirmedOrSettled {
         int256 fixedRate = irs.swapRate;
         int256 floatingRate = benchmark() + irs.spread;
-        uint256 fixedPayment = uint256(fixedRate) * irs.notionalAmount;
-        uint256 floatingPayment = uint256(floatingRate) * irs.notionalAmount;
+        uint256 fixedPayment = uint256(fixedRate) * irs.notionalAmount / 360;
+        uint256 floatingPayment = uint256(floatingRate) * irs.notionalAmount / 360;
 
         if(fixedRate == floatingRate) {
             revert nothingToSwap(fixedRate, floatingRate);
@@ -348,6 +356,61 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         delete pendingRequests[confirmationHash];
 
         emit TradeTerminationCanceled(msg.sender, _tradeId, _terminationTerms);
+    }
+
+    /**--------------------------------- Chainlink Automation --------------------------------*/
+    /**
+    * @notice make an API call to fetch the reference rate
+    */
+    function requestReferenceRate() public returns(bytes32 requestId) {
+        Chainlink.Request memory req = _buildChainlinkRequest(
+            jobId,
+            address(this),
+            this.fulfill.selector
+        );
+
+        req._add("get", referenceRateURLs[numberOfSettlement]);
+        req._add("path", referenceRatePath);
+        req._addInt("times", 1);
+
+        uint256 nbOfSettlement = numberOfSettlement;
+        numberOfSettlement = nbOfSettlement + 1;
+
+        // send the request
+        requestId = _sendChainlinkRequest(req, fee);
+    }
+
+    function fulfill(
+        bytes32 _requestId,
+        int256 _referenceRate
+    ) public recordChainlinkFulfillment(_requestId) {
+        emit RequestReferenceRate(_requestId, _referenceRate);
+
+        referenceRate = _referenceRate;
+
+        emit referenceRateFetched();
+    }
+
+    function checkLog(
+        Log calldata,
+        bytes memory
+    ) external view returns(bool upkeepNeeded, bytes memory performData) {
+        upkeepNeeded = true;
+        performData = abi.encode(referenceRate);
+    }
+
+    function performUpkeep(bytes calldata performData) external override {
+        int256 rate = abi.decode(performData, (int256));
+
+        require(rate == referenceRate, "invalid reference rate");
+
+        performSettlement(settlementAmount, "");
+    }
+
+    /** TO BE REMOVED: This function MUST be removed in production */
+    function setURLs(string[] memory _urls, string memory _referenceRatePath) external onlyCounterparty {
+        referenceRateURLs = _urls;
+        referenceRatePath = _referenceRatePath;
     }
 
     /**----------------------------- Transacctional functions --------------------------------*/

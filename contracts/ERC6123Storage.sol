@@ -146,14 +146,21 @@ abstract contract ERC6123Storage {
     TradeState internal tradeState;
 
     string tradeData;
-    string[] internal settlementData;
     string public tradeID;
+    string internal referenceRatePath;
+    string[] internal referenceRateURLs;
+    string[] internal settlementData;
 
     uint256 internal initialMarginBuffer;
     uint256 internal initialTerminationFee;
     uint256 internal inceptingTime;
     uint256 internal confirmationTime;
     uint256 internal rateMultiplier;
+    int256 internal settlementAmount;
+    uint256 public numberOfSettlement;
+
+    bytes32 internal jobId;
+    uint256 internal fee;
 
     Types.IRSReceipt[] internal irsReceipts;
 }
