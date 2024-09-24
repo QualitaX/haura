@@ -8,12 +8,12 @@ import "./ERC6123Storage.sol";
 import "./assets/ERC7586.sol";
 import "./Types.sol";
 
-/**
-* @notice Implementation of ERC6123 for Interest Rate Swap Derivatives
-* @author Samuel Gwlanold Edoumou - QualitaX
-* - The contract implements the Vanilla Interest Rate Swap to exchange fixed and floating interest rates
-*/
 contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
+    using Chainlink for Chainlink.Request;
+
+    event referenceRateFetched();
+    event RequestReferenceRate(bytes32 indexed requestId, int256 referenceRate);
+
     modifier onlyCounterparty() {
         require(
             msg.sender == irs.fixedRatePayer || msg.sender == irs.floatingRatePayer,
@@ -25,8 +25,22 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     constructor (
         string memory _irsTokenName,
         string memory _irsTokenSymbol,
-        Types.IRS memory _irs
-    ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs) {}
+        Types.IRS memory _irs,
+        address _linkToken,
+        address _chainlinkOracle,
+        string memory _jobId,
+        uint256 _initialMarginBuffer,
+        uint256 _initialTerminationFee,
+        uint256 _rateMultiplier
+    ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs, _linkToken, _chainlinkOracle) {
+        initialMarginBuffer = _initialMarginBuffer;
+        initialTerminationFee = _initialTerminationFee;
+        confirmationTime = 1 hours;
+        rateMultiplier = _rateMultiplier;
+
+        jobId = bytes32(abi.encodePacked(_jobId));
+        fee = (1 * LINK_DIVISIBILITY) / 10;  // 0,1 * 10**18 (Varies by network and job)
+    }
 
     function inceptTrade(
         address _withParty,
@@ -35,33 +49,42 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         int256 _paymentAmount,
         string memory _initialSettlementData
     ) external override onlyCounterparty onlyWhenTradeInactive returns (string memory) {
-        if(_withParty != irs.fixedRatePayer || _withParty != irs.floatingRatePayer)
-            revert mustBePayerOrReceiver(_withParty, irs.fixedRatePayer, irs.floatingRatePayer);
-        if(msg.sender == _withParty)
+        address inceptor = msg.sender;
+
+        if(inceptor == _withParty)
             revert cannotInceptWithYourself(msg.sender, _withParty);
-        if(_position != 1 || _position != -1)
-            revert invalidPositionValue(_position);
+        require(
+            _withParty != irs.fixedRatePayer || _withParty != irs.floatingRatePayer,
+            "counterparty must be payer or receiver"
+        );
+        require(_position != 1 || _position != -1, "invalid position");
+        if(_paymentAmount == 0) revert invalidPaymentAmount(_paymentAmount);
+
+        if(_position == 1) {
+            irs.fixedRatePayer = msg.sender;
+            irs.floatingRatePayer = _withParty;
+        } else {
+            irs.fixedRatePayer = _withParty;
+            irs.floatingRatePayer = msg.sender;
+        }
 
         tradeState = TradeState.Incepted;
 
-        uint256 dataHash = uint256(
-            keccak256(
-                abi.encode(
-                    msg.sender,
-                    _withParty,
-                    _tradeData,
-                    _position,
-                    _paymentAmount,
-                    _initialSettlementData
-                )
+        uint256 dataHash = uint256(keccak256(
+            abi.encode(
+                msg.sender,
+                _withParty,
+                _tradeData,
+                _position,
+                _paymentAmount,
+                _initialSettlementData
             )
-        );
+        ));
 
         pendingRequests[dataHash] = msg.sender;
         tradeID = Strings.toString(dataHash);
         tradeData = _tradeData;
-        receivingParty = _position == 1 ? msg.sender : _withParty;
-        upfrontPayment = _position == 1 ? _paymentAmount : -_paymentAmount;
+        inceptingTime = block.timestamp;
 
         emit TradeIncepted(
             msg.sender,
@@ -73,44 +96,64 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
             _initialSettlementData
         );
 
+        marginRequirements[msg.sender] = Types.MarginRequirement({
+            marginBuffer: initialMarginBuffer,
+            terminationFee: initialTerminationFee
+        });
+
+        //The initial margin and the termination fee must be deposited into the contract
+        uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
+
+        require(
+            IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
+            "Failed to transfer the initial margin + the termination fee"
+        );
+
         return tradeID;
     }
 
+    
     function confirmTrade(
         address _withParty,
         string memory _tradeData,
         int _position,
         int256 _paymentAmount,
         string memory _initialSettlementData
-    ) external onlyCounterparty onlyWhenTradeIncepted {
-        address inceptingParty = _inceptingParty();
+    ) external override onlyWhenTradeIncepted onlyWithinConfirmationTime {
+        address inceptingParty = otherParty();
 
-        uint256 dataHash = uint256(
-            keccak256(
-                abi.encode(
-                    _withParty,
-                    msg.sender,
-                    _tradeData,
-                    -_position,
-                    -_paymentAmount,
-                    _initialSettlementData
-                )
+        uint256 confirmationHash = uint256(keccak256(
+            abi.encode(
+                _withParty,
+                msg.sender,
+                _tradeData,
+                -_position,
+                -_paymentAmount,
+                _initialSettlementData
             )
-        );
+        ));
 
-        if(pendingRequests[dataHash] != inceptingParty)
-            revert inconsistentTradeDataOrWrongAddress(inceptingParty, dataHash);
+        if(pendingRequests[confirmationHash] != inceptingParty)
+            revert inconsistentTradeDataOrWrongAddress(inceptingParty, confirmationHash);
 
-        delete pendingRequests[dataHash];
+        delete pendingRequests[confirmationHash];
         tradeState = TradeState.Confirmed;
 
         emit TradeConfirmed(msg.sender, tradeID);
 
-        address upfrontPayer = upfrontPayment > 0 ? otherParty(receivingParty) : receivingParty;
-        uint256 upfrontTransferAmount = uint256(abs(_paymentAmount));
+        marginRequirements[msg.sender] = Types.MarginRequirement({
+            marginBuffer: initialMarginBuffer,
+            terminationFee: initialTerminationFee
+        });
 
-        processTradeAfterConfirmation(upfrontPayer, upfrontTransferAmount, _initialSettlementData);
-     }
+        // The initial margin and the termination fee must be deposited into the contract
+        uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
+
+        require(
+            IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
+            "Failed to to transfer the initial margin + the termination fee"
+        );
+    }
 
     function cancelTrade(
         address _withParty,
@@ -118,98 +161,139 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         int _position,
         int256 _paymentAmount,
         string memory _initialSettlementData
-    ) external {
+    ) external override onlyWhenTradeIncepted {
         address inceptingParty = msg.sender;
-        uint256 dataHash = uint256(
-            keccak256(abi.encode(
+
+        uint256 confirmationHash = uint256(keccak256(
+            abi.encode(
                 msg.sender,
                 _withParty,
                 _tradeData,
                 _position,
                 _paymentAmount,
                 _initialSettlementData
-            ))
-        );
+            )
+        ));
 
-        require(
-            pendingRequests[dataHash] == inceptingParty,
-            "Failed: inconsistent trade data or wrong party address"
-        );
+        if(pendingRequests[confirmationHash] != inceptingParty)
+            revert inconsistentTradeDataOrWrongAddress(inceptingParty, confirmationHash);
 
-        delete pendingRequests[dataHash];
+        delete pendingRequests[confirmationHash];
         tradeState = TradeState.Inactive;
 
         emit TradeCanceled(msg.sender, tradeID);
     }
 
-    function initiateSettlement() external {
-        
+    /**
+    * @notice We don't implement the `initiateSettlement` function since this is done automatically
+    */
+    function initiateSettlement() external view override onlyCounterparty onlyWhenTradeConfirmed {
+        revert obseleteFunction();
     }
-
+    
+    /**
+    * @notice In case of Chainlink ETH Staking Rate, the rateMultiplier = 3. And the result MUST be devided by 10^7
+    *         We assume rates are input in basis point
+    */
     function performSettlement(
-        int256 settlementAmount,
-        string memory settlementData
-    ) external {
-        
+        int256 _settlementAmount,
+        string memory _settlementData
+    ) public override onlyWhenConfirmedOrSettled {
+        int256 fixedRate = irs.swapRate;
+        int256 floatingRate = benchmark() + irs.spread;
+        uint256 fixedPayment = uint256(fixedRate) * irs.notionalAmount / 360;
+        uint256 floatingPayment = uint256(floatingRate) * irs.notionalAmount / 360;
+
+        if(fixedRate == floatingRate) {
+            revert nothingToSwap(fixedRate, floatingRate);
+        } else if(fixedRate > floatingRate) {
+            netSettlementAmount = fixedPayment - floatingPayment;
+            receiverParty = irs.floatingRatePayer;
+            payerParty = irs.fixedRatePayer;
+
+            // Needed just to check the input settlement amount
+            require(
+                netSettlementAmount * 1 ether / 10_000 == uint256(_settlementAmount),
+                "invalid settlement amount"
+            );
+
+            // Generates the settlement receipt
+            irsReceipts.push(
+                Types.IRSReceipt({
+                    from: irs.fixedRatePayer,
+                    to: receiverParty,
+                    netAmount: netSettlementAmount,
+                    timestamp: block.timestamp,
+                    fixedRatePayment: fixedPayment,
+                    floatingRatePayment: floatingPayment
+                })
+            );
+        } else {
+            netSettlementAmount = floatingPayment - fixedPayment;
+            receiverParty = irs.fixedRatePayer;
+            payerParty = irs.floatingRatePayer;
+
+            // Needed just to check the input settlement amount
+            require(
+                netSettlementAmount * 1 ether / 10_000 == uint256(_settlementAmount),
+                "invalid settlement amount"
+            );
+
+            // Generates the settlement receipt
+            irsReceipts.push(
+                Types.IRSReceipt({
+                    from: irs.floatingRatePayer,
+                    to: receiverParty,
+                    netAmount: netSettlementAmount,
+                    timestamp: block.timestamp,
+                    fixedRatePayment: fixedPayment,
+                    floatingRatePayment: floatingPayment
+                })
+            );
+        }
+
+        uint8 _swapCount = swapCount;
+        swapCount = _swapCount + 1;
+
+        if(swapCount < irs.settlementDates.length) {
+            tradeState = TradeState.Settled;
+        } else if (swapCount == irs.settlementDates.length) {
+            tradeState = TradeState.Matured;
+        } else {
+            revert allSettlementsDone();
+        }
+
+        _checkBalanceAndSwap(payerParty, netSettlementAmount);
+
+        emit SettlementEvaluated(msg.sender, int256(netSettlementAmount), _settlementData);
     }
 
-    function afterTransfer(
-        bool success,
-        string memory transactionData
-    ) external {
-        if ( inStateConfirmed()){
-            if (success){
-                setTradeState(TradeState.Settled);
-                emit TradeActivated(getTradeID());
-            }
-            else{
-                setTradeState(TradeState.Terminated);
-                emit TradeTerminated(tradeID, "Upfront Transfer Failure");
-            }
-        }
-        else if ( inStateTransfer() ){
-            if (success){
-                setTradeState(TradeState.Settled);
-                emit SettlementTransferred("Settlement Settled - Pledge Transfer");
-            }
-            else{  // Settlement & Pledge Case: transferAmount is transferred from SDC balance (i.e. pledged balance).
-                int256 settlementAmount = settlementAmounts[settlementAmounts.length-1];
-                setTradeState(TradeState.InTermination);
-                processTerminationWithPledge(settlementAmount);
-                emit TradeTerminated(tradeID, "Settlement Failed - Pledge Transfer");
-            }
-        }
-        else if( inStateTermination() ){
-            if (success){
-                setTradeState(TradeState.Terminated);
-                emit TradeTerminated(tradeID, "Trade terminated sucessfully");
-            }
-            else{
-                emit TradeTerminated(tradeID, "Mutual Termination failed - Pledge Transfer");
-                processTerminationWithPledge(getTerminationPayment());
-            }
-        }
-        else
-            revert("Trade State does not allow to call 'afterTransfer'");
+    /**
+    * @notice We don't implement the `afterTransfer` function since the transfer of the contract
+    *         net present value is transferred in the `performSettlement function`.
+    */
+    function afterTransfer(bool /**success*/, string memory /*transactionData*/) external pure override {
+        revert obseleteFunction();
     }
 
+    /**-> NOT CLEAR: Why requesting trade termination after the trade has been settled ? */
     function requestTradeTermination(
         string memory _tradeId,
         int256 _terminationPayment,
         string memory _terminationTerms
-    ) external {
-        require(
-            keccak256(abi.encodePacked(tradeID)) == keccak256(abi.encodePacked(_tradeId)),
-            "Trade ID mismatch"
-        );
-        uint256 terminationHash = uint256(
-            keccak256(abi.encode(
+    ) external override onlyCounterparty onlyWhenSettled {
+        if(
+            keccak256(abi.encodePacked(_tradeId)) != keccak256(abi.encodePacked(tradeID))
+        ) revert invalidTradeID(_tradeId);
+
+        uint256 terminationHash = uint256(keccak256(
+            abi.encode(
                 _tradeId,
                 "terminate",
                 _terminationPayment,
                 _terminationTerms
-            ))
-        );
+            )
+        ));
 
         pendingRequests[terminationHash] = msg.sender;
 
@@ -220,40 +304,10 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         string memory _tradeId,
         int256 _terminationPayment,
         string memory _terminationTerms
-    ) external {
-        address pendingRequestParty = _inceptingParty();
-        uint256 hashConfirm = uint256(
-            keccak256(abi.encode(
-                _tradeId,
-                "terminate",
-                -_terminationPayment,
-                _terminationTerms
-            ))
-        );
-        require(
-            pendingRequests[hashConfirm] == pendingRequestParty,
-            "Confirmation failed due to wrong party or missing request"
-        );
+    ) external onlyCounterparty onlyWhenSettled {
+        address pendingRequestParty = otherParty();
 
-        delete pendingRequests[hashConfirm];
-        terminationPayment = msg.sender == receivingParty ? _terminationPayment : -_terminationPayment;
-
-        emit TradeTerminationConfirmed(msg.sender, _tradeId, _terminationPayment, _terminationTerms);
-
-        // Trigger Termination Payment Amount
-        address payerAddress = terminationPayment > 0 ? otherParty(receivingParty) : receivingParty;
-        uint256 absPaymentAmount = uint256(abs(_terminationPayment));
-        setTradeState(TradeState.InTermination);
-        processTradeAfterMutualTermination(payerAddress, absPaymentAmount, _terminationTerms);
-    }
-
-    function cancelTradeTermination(
-        string memory _tradeId,
-        int256 _terminationPayment,
-        string memory _terminationTerms
-    ) external {
-        address pendingRequestParty = msg.sender;
-        uint256 hashConfirm = uint256(keccak256(
+        uint256 confirmationhash = uint256(keccak256(
             abi.encode(
                 _tradeId,
                 "terminate",
@@ -261,119 +315,184 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
                 _terminationTerms
             )
         ));
-        require(
-            pendingRequests[hashConfirm] == pendingRequestParty,
-            "Cancellation failed due to wrong party or missing request"
-        );
-        delete pendingRequests[hashConfirm];
-        
+
+        if(pendingRequests[confirmationhash] != pendingRequestParty)
+            revert inconsistentTradeDataOrWrongAddress(pendingRequestParty, confirmationhash);
+
+        delete pendingRequests[confirmationhash];
+
+        address terminationPayer = otherParty();
+        terminationReceiver = msg.sender;
+        uint256 buffer = marginRequirements[terminationReceiver].marginBuffer + marginRequirements[terminationPayer].marginBuffer;
+        uint256 fees = marginRequirements[terminationReceiver].terminationFee + marginRequirements[terminationPayer].terminationFee;
+        terminationAmount = buffer + fees;
+
+        _updateMargin(terminationPayer, terminationReceiver);
+
+        terminateSwap();
+
+        tradeState = TradeState.Terminated;
+    }
+
+    function cancelTradeTermination(
+        string memory _tradeId,
+        int256 _terminationPayment,
+        string memory _terminationTerms
+    ) external onlyWhenSettled {
+        address pendingRequestParty = msg.sender;
+
+        uint256 confirmationHash = uint256(keccak256(
+            abi.encode(
+                _tradeId,
+                "terminate",
+                _terminationPayment,
+                _terminationTerms
+            )
+        ));
+
+        if(pendingRequests[confirmationHash] != pendingRequestParty)
+            revert inconsistentTradeDataOrWrongAddress(pendingRequestParty, confirmationHash);
+
+        delete pendingRequests[confirmationHash];
+
         emit TradeTerminationCanceled(msg.sender, _tradeId, _terminationTerms);
     }
 
-    /*
-     * Booking of the upfrontPayment and implementation specific setups of margin buffers / wallets.
-     */
-    function processTradeAfterConfirmation(address _upfrontPayer, uint256 _upfrontPayment, string memory _initialSettlementData) internal virtual {
+    /**--------------------------------- Chainlink Automation --------------------------------*/
+    /**
+    * @notice make an API call to fetch the reference rate
+    */
+    function requestReferenceRate() public returns(bytes32 requestId) {
+        Chainlink.Request memory req = _buildChainlinkRequest(
+            jobId,
+            address(this),
+            this.fulfill.selector
+        );
 
+        req._add("get", referenceRateURLs[numberOfSettlement]);
+        req._add("path", referenceRatePath);
+        req._addInt("times", 1);
+
+        uint256 nbOfSettlement = numberOfSettlement;
+        numberOfSettlement = nbOfSettlement + 1;
+
+        // send the request
+        requestId = _sendChainlinkRequest(req, fee);
     }
 
+    function fulfill(
+        bytes32 _requestId,
+        int256 _referenceRate
+    ) public recordChainlinkFulfillment(_requestId) {
+        emit RequestReferenceRate(_requestId, _referenceRate);
 
-    /*
-     * Booking of the terminationAmount and implementation specific cleanup of margin buffers / wallets.
-     */
-    function processTradeAfterMutualTermination(address _terminationFeePayer, uint256 _terminationAmount,  string memory _terminationData) internal virtual {
+        referenceRate = _referenceRate;
 
+        emit referenceRateFetched();
     }
 
-    function _inceptingParty() private view returns(address) {
-        return msg.sender == _irs.floatingRatePayer ? _irs.fixedRatePayer : _irs.floatingRatePayer;
+    function checkLog(
+        Log calldata,
+        bytes memory
+    ) external view returns(bool upkeepNeeded, bytes memory performData) {
+        upkeepNeeded = true;
+        performData = abi.encode(referenceRate);
     }
 
-    /*
-     * Management of Trade States
-     */
-    function    inStateIncepted()    public view returns (bool) { return tradeState == TradeState.Incepted; }
-    function    inStateConfirmed()   public view returns (bool) { return tradeState == TradeState.Confirmed; }
-    function    inStateSettled()     public view returns (bool) { return tradeState == TradeState.Settled; }
-    function    inStateTransfer()    public view returns (bool) { return tradeState == TradeState.InTransfer; }
-    function    inStateTermination() public view returns (bool) { return tradeState == TradeState.InTermination; }
-    function    inStateTerminated()  public view returns (bool) { return tradeState == TradeState.Terminated; }
+    function performUpkeep(bytes calldata performData) external override {
+        int256 rate = abi.decode(performData, (int256));
 
-    function getTradeState() public view returns (TradeState) {
+        require(rate == referenceRate, "invalid reference rate");
+
+        performSettlement(settlementAmount, "");
+    }
+
+    /** TO BE REMOVED: This function MUST be removed in production */
+    function setURLs(string[] memory _urls, string memory _referenceRatePath) external onlyCounterparty {
+        referenceRateURLs = _urls;
+        referenceRatePath = _referenceRatePath;
+    }
+
+    /**----------------------------- Transacctional functions --------------------------------*/
+    /**
+    * @notice Make a CALL to ERC-7586 swap function. Check that the payer has enough initial
+    *         margin to make the transfer in case of insufficient balance during settlement
+    * @param _payer The swap payer account address
+    * @param _settlementAmount The net settlement amount to be transferred (in ether unit)
+    */
+    function _checkBalanceAndSwap(address _payer, uint256 _settlementAmount) private {
+         uint256 balance = IERC20(irs.settlementCurrency).balanceOf(_payer);
+
+         if (balance < _settlementAmount) {
+            uint256 buffer = marginRequirements[_payer].marginBuffer;
+
+            if(buffer < _settlementAmount) {
+                revert notEnoughMarginBuffer(_settlementAmount, buffer);
+            } else {
+                marginRequirements[_payer].marginBuffer = buffer - _settlementAmount;
+                marginCalls[_payer] = _settlementAmount;
+                transferMode = 1;
+                swap();
+                transferMode = 0;
+            }
+         } else {
+            swap();
+         }
+    }
+
+    /**---------------------- Internal Private and other view functions ----------------------*/
+    function _updateMargin(address _payer, address _receiver) private {
+        marginRequirements[_payer].marginBuffer = 0;
+        marginRequirements[_payer].terminationFee = 0;
+        marginRequirements[_receiver].marginBuffer = 0;
+        marginRequirements[_receiver].terminationFee = 0;
+    }
+
+    function getTradeState() external view returns(TradeState) {
         return tradeState;
     }
 
-    function setTradeState(TradeState newState) internal {
-        if ( newState == TradeState.Incepted && tradeState != TradeState.Inactive)
-            revert("Provided Trade state is not allowed");
-        if ( newState == TradeState.Confirmed && tradeState != TradeState.Incepted)
-            revert("Provided Trade state is not allowed");
-        if ( newState == TradeState.InTransfer && !(tradeState == TradeState.Confirmed || tradeState == TradeState.Valuation) )
-            revert("Provided Trade state is not allowed");
-        if ( newState == TradeState.Valuation && tradeState != TradeState.Settled)
-            revert("Provided Trade state is not allowed");
-        if ( newState == TradeState.InTermination && !(tradeState == TradeState.InTransfer || tradeState == TradeState.Settled ) )
-            revert("Provided Trade state is not allowed");
-        tradeState = newState;
-    }
-
-    /*
-     * Upfront and termination payments.
-     */
-
-    function getReceivingParty() public view returns (address) {
-        return receivingParty;
-    }
-
-    function getUpfrontPayment() public view returns (int) {
-        return upfrontPayment;
-    }
-
-    function getTerminationPayment() public view returns (int) {
-        return terminationFee;
-    }
-
-    /*
-     * Trade Specification (ID, Token, Data)
-     */
-
-    function getTradeID() public view returns (string memory) {
+    function getTradeID() external view returns(string memory) {
         return tradeID;
     }
 
-    function setTradeId(string memory _tradeID) public {
-        tradeID= _tradeID;
+    function getInceptingTime() external view returns(uint256) {
+        return inceptingTime;
     }
 
-    function getTradeData() public view returns (string memory) {
-        return tradeData;
+    function getConfirmationTime() external view returns(uint256) {
+        return confirmationTime;
     }
 
-    /**
-     * Other party
-     */
-    function otherParty(address _party) internal view returns(address) {
-        return _party == irs.floatingRatePayer ? irs.fixedRatePayer : irs.floatingRatePayer;
+    function getInitialMargin() external view returns(uint256) {
+        return initialMarginBuffer;
     }
 
-    /**
-     * Maximum value of two integers
-     */
-    function max(int a, int b) internal pure returns (int256) {
-        return a > b ? a : b;
+    function getInitialTerminationFee() external view returns(uint256) {
+        return initialTerminationFee;
     }
 
-    /**
-    * Minimum value of two integers
-    */
-    function min(int a, int b) internal pure returns (int256) {
-        return a < b ? a : b;
+    function getMarginCall(address _account) external view returns(uint256) {
+        return marginCalls[_account];
     }
 
-    /**
-     * Absolute value of an integer
-     */
-    function abs(int x) internal pure returns (int256) {
-        return x >= 0 ? x : -x;
+    function getMarginRequirement(address _account) external view returns(Types.MarginRequirement memory) {
+        return marginRequirements[_account];
+    }
+
+    function getRateMultiplier() external view returns(uint256) {
+        return rateMultiplier;
+    }
+
+    function otherParty() internal view returns(address) {
+        return msg.sender == irs.fixedRatePayer ? irs.floatingRatePayer : irs.fixedRatePayer;
+    }
+
+    function otherParty(address _account) internal view returns(address) {
+        return _account == irs.fixedRatePayer ? irs.floatingRatePayer : irs.fixedRatePayer;
+    }
+
+    function getIRSReceipts() external view returns(Types.IRSReceipt[] memory) {
+        return irsReceipts;
     }
 }

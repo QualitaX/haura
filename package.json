@@ -33,6 +33,9 @@
   },
   "dependencies": {
     "@chainlink/contracts": "^1.2.0",
-    "@openzeppelin/contracts": "^5.0.2"
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
+    "@openzeppelin/contracts": "^5.0.2",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
   }
 }

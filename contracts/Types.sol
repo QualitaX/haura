@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
-
 abstract contract Types {
     struct IRS {
-        address irsContract;
         address fixedRatePayer;
         address floatingRatePayer;
         address oracleContractForBenchmark;
@@ -19,18 +17,11 @@ abstract contract Types {
         uint256[] settlementDates;
     }
 
-    struct SettlementReceipt {
-        address from;
-        address to;
-        address currency;
-        uint256 amount;
-    }
-
     struct MarginRequirement {
         uint256 marginBuffer;
         uint256 terminationFee;
     }
-
+    
     struct IRSReceipt {
         address from;
         address to;

@@ -1,7 +1,22 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+import "./Types.sol";
+
 abstract contract ERC6123Storage {
+    error obseleteFunction();
+    error allSettlementsDone();
+    error stateMustBeConfirmedOrSettled();
+    error invalidTradeID(string _tradeID);
+    error invalidPaymentAmount(int256 _amount);
+    error invalidPositionValue(int256 _position);
+    error nothingToSwap(int256 _fixedRate, int256 _floatingRate);
+    error mustBeOtherParty(address _withParty, address _otherParty);
+    error cannotInceptWithYourself(address _caller, address _withParty);
+    error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
+    error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
+    error notEnoughMarginBuffer(uint256 _settlementAmount, uint256 _availableMarginBuffer);
+
     /*
      * Trade States
      */
@@ -44,13 +59,12 @@ abstract contract ERC6123Storage {
         /*
          * Terminated.
          */
-        Terminated
+        Terminated,
+        /**
+        * Has reached Maturity 
+        */
+       Matured
     }
-
-    error cannotInceptWithYourself(address _inceptor, address _withParty);
-    error mustBePayerOrReceiver(address _withParty, address _payer, address _receiver);
-    error invalidPositionValue(int256 _position);
-    error inconsistentTradeDataOrWrongAddress(address _inceptor, uint256 _dataHash);
 
     modifier onlyWhenTradeInactive() {
         require(
@@ -64,6 +78,14 @@ abstract contract ERC6123Storage {
         require(
             tradeState == TradeState.Incepted,
             "Trade state is not 'Incepted'."
+        );
+        _;
+    }
+
+    modifier onlyWhenTradeConfirmed() {
+        require(
+            tradeState == TradeState.Confirmed,
+            "Trade state is not 'Confirmed'." 
         );
         _;
     }
@@ -100,13 +122,45 @@ abstract contract ERC6123Storage {
         _;
     }
 
+    modifier onlyWhenConfirmedOrSettled() {
+        if(tradeState != TradeState.Confirmed) {
+            if(tradeState != TradeState.Settled) {
+                revert stateMustBeConfirmedOrSettled();
+            }
+        }
+        _;
+    }
+
+    modifier onlyWithinConfirmationTime() {
+        require(
+            block.timestamp - inceptingTime <= confirmationTime,
+            "Confimartion time is over"
+        );
+        _;
+    }
+
+    mapping(address => uint256) internal marginCalls;
     mapping(uint256 => address) internal pendingRequests;
+    mapping(address => Types.MarginRequirement) internal marginRequirements;
 
     TradeState internal tradeState;
 
-    string internal tradeID;
-    string internal tradeData;
+    string tradeData;
+    string public tradeID;
+    string internal referenceRatePath;
+    string[] internal referenceRateURLs;
+    string[] internal settlementData;
 
-    int256 terminationFee;
-    int256 upfrontPayment;
+    uint256 internal initialMarginBuffer;
+    uint256 internal initialTerminationFee;
+    uint256 internal inceptingTime;
+    uint256 internal confirmationTime;
+    uint256 internal rateMultiplier;
+    int256 internal settlementAmount;
+    uint256 public numberOfSettlement;
+
+    bytes32 internal jobId;
+    uint256 internal fee;
+
+    Types.IRSReceipt[] internal irsReceipts;
 }
