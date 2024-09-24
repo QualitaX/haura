@@ -64,8 +64,8 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
             irs.fixedRatePayer = msg.sender;
             irs.floatingRatePayer = _withParty;
         } else {
-            irs.fixedRatePayer = _withParty;
             irs.floatingRatePayer = msg.sender;
+            irs.fixedRatePayer = _withParty;
         }
 
         tradeState = TradeState.Incepted;
