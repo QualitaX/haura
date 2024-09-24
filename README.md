@@ -1,5 +1,8 @@
 # haura
 
+This repository is dedicated to prototyping and developing a proof-of-concept for Ethereum staking rate swaps using the ERC-6123. 
+This project is in its early stages and aims to explore innovative SDC that allow users to hedge or speculate on Ethereum staking rewards.
+
 ## Copyright
 
 Copyright ©2024 Consianimis Consulting Ltd Trading as QualitaX.
