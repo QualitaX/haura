@@ -1,6 +1,6 @@
 # haura
 
-# Copyright
+## Copyright
 
 Copyright ©2024 Consianimis Consulting Ltd Trading as QualitaX
 
