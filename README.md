@@ -1,7 +1,7 @@
 # haura
 
-This repository is dedicated to prototyping and developing a proof-of-concept for Ethereum staking rate swaps using the ERC-6123. 
-This project is in its early stages and aims to explore SDCs (using different benchmark rates) that allow users to hedge or speculate on Ethereum staking rewards.
+This repository is dedicated to prototyping and developing a proof-of-concept for Ethereum staking rate swaps using the ERC-6123 specification. 
+This project is in its early stages and aims to explore SDCs (using different benchmark rates) that allow users to hedge or speculate on Ethereum staking rate.
 
 ## Copyright
 
