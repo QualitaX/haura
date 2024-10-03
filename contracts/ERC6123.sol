@@ -199,59 +199,6 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         int256 _settlementAmount,
         string memory _settlementData
     ) public override onlyWhenConfirmedOrSettled {
-        int256 fixedRate = irs.swapRate;
-        int256 floatingRate = benchmark() + irs.spread;
-        uint256 fixedPayment = uint256(fixedRate) * irs.notionalAmount / 360;
-        uint256 floatingPayment = uint256(floatingRate) * irs.notionalAmount / 360;
-
-        if(fixedRate == floatingRate) {
-            revert nothingToSwap(fixedRate, floatingRate);
-        } else if(fixedRate > floatingRate) {
-            netSettlementAmount = fixedPayment - floatingPayment;
-            receiverParty = irs.floatingRatePayer;
-            payerParty = irs.fixedRatePayer;
-
-            // Needed just to check the input settlement amount
-            require(
-                netSettlementAmount * 1 ether / 10_000 == uint256(_settlementAmount),
-                "invalid settlement amount"
-            );
-
-            // Generates the settlement receipt
-            irsReceipts.push(
-                Types.IRSReceipt({
-                    from: irs.fixedRatePayer,
-                    to: receiverParty,
-                    netAmount: netSettlementAmount,
-                    timestamp: block.timestamp,
-                    fixedRatePayment: fixedPayment,
-                    floatingRatePayment: floatingPayment
-                })
-            );
-        } else {
-            netSettlementAmount = floatingPayment - fixedPayment;
-            receiverParty = irs.fixedRatePayer;
-            payerParty = irs.floatingRatePayer;
-
-            // Needed just to check the input settlement amount
-            require(
-                netSettlementAmount * 1 ether / 10_000 == uint256(_settlementAmount),
-                "invalid settlement amount"
-            );
-
-            // Generates the settlement receipt
-            irsReceipts.push(
-                Types.IRSReceipt({
-                    from: irs.floatingRatePayer,
-                    to: receiverParty,
-                    netAmount: netSettlementAmount,
-                    timestamp: block.timestamp,
-                    fixedRatePayment: fixedPayment,
-                    floatingRatePayment: floatingPayment
-                })
-            );
-        }
-
         uint8 _swapCount = swapCount;
         swapCount = _swapCount + 1;
 
@@ -263,7 +210,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
             revert allSettlementsDone();
         }
 
-        _checkBalanceAndSwap(payerParty, netSettlementAmount);
+        _checkBalanceAndSwap(payerParty, uint256(_settlementAmount));
 
         emit SettlementEvaluated(msg.sender, int256(netSettlementAmount), _settlementData);
     }
@@ -377,15 +324,13 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         numberOfSettlement = nbOfSettlement + 1;
 
         // send the request
-        requestId = _sendChainlinkRequest(req, fee);
+        return _sendChainlinkRequest(req, fee);
     }
 
     function fulfill(
         bytes32 _requestId,
         int256 _referenceRate
     ) public recordChainlinkFulfillment(_requestId) {
-        emit RequestReferenceRate(_requestId, _referenceRate);
-
         referenceRate = _referenceRate;
 
         emit referenceRateFetched();
@@ -396,13 +341,43 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         bytes memory
     ) external view returns(bool upkeepNeeded, bytes memory performData) {
         upkeepNeeded = true;
-        performData = abi.encode(referenceRate);
+
+        address payer;
+        address receiver;
+        uint256 settlementAmount;
+
+        int256 fixedRate = irs.swapRate;
+        int256 floatingRate = referenceRate + irs.spread;
+
+        uint256 fixedPayment = irs.notionalAmount * uint256(fixedRate) * 1 ether / (360 * 10_000);
+        uint256 floatingPayment = irs.notionalAmount * uint256(floatingRate) * 1 ether / (360 * 10_000);
+
+        if(fixedRate == floatingRate) {
+            revert nothingToSwap(fixedRate, floatingRate);
+        } else if(fixedRate > floatingRate) {
+            //netSettlementAmount = fixedPayment - floatingPayment;
+
+            receiver = irs.floatingRatePayer;
+            payer = irs.fixedRatePayer;
+            settlementAmount = fixedPayment - floatingPayment;
+        } else {
+            receiver = irs.fixedRatePayer;
+            payer = irs.floatingRatePayer;
+            settlementAmount = floatingPayment - fixedPayment;
+        }
+
+        performData = abi.encode(payer, receiver, int256(settlementAmount), fixedPayment, floatingPayment);
     }
 
     function performUpkeep(bytes calldata performData) external override {
-        int256 rate = abi.decode(performData, (int256));
+        (address payer, address receiver, int256 settlementAmount, uint256 fixedPayment, uint256 floatingPayment) = abi.decode(
+            performData, (address, address, int256, uint256, uint256)
+        );
 
-        require(rate == referenceRate, "invalid reference rate");
+        payerParty = payer;
+        receiverParty = receiver;
+        fixedRatePayment = fixedPayment;
+        floatingRatePayment = floatingPayment;
 
         performSettlement(settlementAmount, "");
     }
@@ -411,6 +386,18 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     function setURLs(string[] memory _urls, string memory _referenceRatePath) external onlyCounterparty {
         referenceRateURLs = _urls;
         referenceRatePath = _referenceRatePath;
+    }
+
+    /**
+     * @notice Allow withdraw of Link tokens from the contract
+     * !!!!!   SECURE THIS FUNCTION FROM BEING CALLED BY NOT ALLOWED USERS !!!!!
+     */
+    function withdrawLink() public {
+        LinkTokenInterface link = LinkTokenInterface(_chainlinkTokenAddress());
+        require(
+            link.transfer(msg.sender, link.balanceOf(address(this))),
+            "Unable to transfer"
+        );
     }
 
     /**----------------------------- Transacctional functions --------------------------------*/
@@ -438,6 +425,20 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
          } else {
             swap();
          }
+
+         irsReceipts.push(
+            Types.IRSReceipt({
+                from: payerParty,
+                to: receiverParty,
+                netAmount: _settlementAmount,
+                timestamp: block.timestamp,
+                fixedRatePayment: fixedRatePayment,
+                floatingRatePayment: floatingRatePayment
+            })
+        );
+
+        payerParty = address(0);
+        receiverParty = address(0);
     }
 
     /**---------------------- Internal Private and other view functions ----------------------*/
@@ -494,5 +495,9 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
 
     function getIRSReceipts() external view returns(Types.IRSReceipt[] memory) {
         return irsReceipts;
+    }
+
+    function getURLs() external view returns(string[] memory) {
+        return referenceRateURLs;
     }
 }
