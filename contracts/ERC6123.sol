@@ -22,6 +22,24 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         _;
     }
 
+    /**
+    * _irsTokenName: "QualitaX Token"
+    * _irsTokenSymbol: "QTX"
+    * _irs: ["0xA2003BF3fEbB0E8DcdEA3c75F1699b5c443Cc7cc", "0x2aB0021165ed140EC25Bc320956963CA2d3dbca0", "0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD", "0xeb0dF3662b780FC01DB1377393Ee3CD4692e19ad", 1, 0, 572, 0, 1000000, 360, 1728005308, 1728008908, [1728006328, 1728006928, 1728003928, 1728004528]]
+    * _linkToken: "0x779877A7B0D9E8603169DdbD7836e478b4624789"
+    * _chainlinkOracle: "0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD" (Chainlink DevRel)
+    * jobId = "fcf4140d696d44b687012232948bdd5d";
+    * _initialMarginBuffer: 1000000
+    * _initialTerminationFee: 500000
+    * _rateMultiplier: 1
+    */
+    /** Mint: 10000000000000000000000000
+    */
+
+    /** URLS
+    * setURLs: ["https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20210930&STKR=1", "https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20211001&STKR=2", "https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20211002&STKR=3", "https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20211003&STKR=4"]
+    * path: "0,STKR_in_pbs"
+    */
     constructor (
         string memory _irsTokenName,
         string memory _irsTokenSymbol,
@@ -146,12 +164,12 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
             terminationFee: initialTerminationFee
         });
 
-        // The initial margin and the termination fee must be deposited into the contract
+        //The initial margin and the termination fee must be deposited into the contract
         uint256 marginAndFee = initialMarginBuffer + initialTerminationFee;
 
         require(
-            IERC20(irs.settlementCurrency).transfer(address(this), marginAndFee * 1 ether),
-            "Failed to to transfer the initial margin + the termination fee"
+            IERC20(irs.settlementCurrency).transferFrom(msg.sender, address(this), marginAndFee * 1 ether),
+            "Failed to transfer the initial margin + the termination fee"
         );
     }
 
@@ -212,7 +230,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
 
         _checkBalanceAndSwap(payerParty, uint256(_settlementAmount));
 
-        emit SettlementEvaluated(msg.sender, int256(netSettlementAmount), _settlementData);
+        emit SettlementEvaluated(msg.sender, _settlementAmount, _settlementData);
     }
 
     /**
@@ -344,7 +362,8 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
 
         address payer;
         address receiver;
-        uint256 settlementAmount;
+        uint256 netSettlementAmount;
+        uint8 burnIRSTokens;
 
         int256 fixedRate = irs.swapRate;
         int256 floatingRate = referenceRate + irs.spread;
@@ -353,33 +372,39 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         uint256 floatingPayment = irs.notionalAmount * uint256(floatingRate) * 1 ether / (360 * 10_000);
 
         if(fixedRate == floatingRate) {
-            revert nothingToSwap(fixedRate, floatingRate);
+            burnIRSTokens = 1;
         } else if(fixedRate > floatingRate) {
-            //netSettlementAmount = fixedPayment - floatingPayment;
-
             receiver = irs.floatingRatePayer;
             payer = irs.fixedRatePayer;
-            settlementAmount = fixedPayment - floatingPayment;
+            netSettlementAmount = fixedPayment - floatingPayment;
         } else {
             receiver = irs.fixedRatePayer;
             payer = irs.floatingRatePayer;
-            settlementAmount = floatingPayment - fixedPayment;
+            netSettlementAmount = floatingPayment - fixedPayment;
         }
 
-        performData = abi.encode(payer, receiver, int256(settlementAmount), fixedPayment, floatingPayment);
+        performData = abi.encode(payer, receiver, int256(netSettlementAmount), fixedPayment, floatingPayment, burnIRSTokens);
     }
 
     function performUpkeep(bytes calldata performData) external override {
-        (address payer, address receiver, int256 settlementAmount, uint256 fixedPayment, uint256 floatingPayment) = abi.decode(
-            performData, (address, address, int256, uint256, uint256)
+        (address payer, address receiver, int256 netSettlementAmount, uint256 fixedPayment, uint256 floatingPayment, uint8 burnIRSTokens) = abi.decode(
+            performData, (address, address, int256, uint256, uint256, uint8)
         );
 
         payerParty = payer;
         receiverParty = receiver;
         fixedRatePayment = fixedPayment;
         floatingRatePayment = floatingPayment;
+        settlementAmount = uint256(netSettlementAmount);
 
-        performSettlement(settlementAmount, "");
+        performSettlement(netSettlementAmount, "");
+
+        if(burnIRSTokens == 1) {
+            burn(payer, 1 ether);
+            burn(receiver, 1 ether);
+
+            burnIRSTokens = 0;
+        }
     }
 
     /** TO BE REMOVED: This function MUST be removed in production */
@@ -419,14 +444,19 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
                 marginRequirements[_payer].marginBuffer = buffer - _settlementAmount;
                 marginCalls[_payer] = _settlementAmount;
                 transferMode = 1;
+                _updateIRSReceipt(_settlementAmount);
                 swap();
                 transferMode = 0;
             }
          } else {
+            _updateIRSReceipt(_settlementAmount);
             swap();
          }
+    }
 
-         irsReceipts.push(
+    /**---------------------- Internal Private and other view functions ----------------------*/
+    function _updateIRSReceipt(uint256 _settlementAmount) private {
+        irsReceipts.push(
             Types.IRSReceipt({
                 from: payerParty,
                 to: receiverParty,
@@ -436,12 +466,8 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
                 floatingRatePayment: floatingRatePayment
             })
         );
-
-        payerParty = address(0);
-        receiverParty = address(0);
     }
 
-    /**---------------------- Internal Private and other view functions ----------------------*/
     function _updateMargin(address _payer, address _receiver) private {
         marginRequirements[_payer].marginBuffer = 0;
         marginRequirements[_payer].terminationFee = 0;
