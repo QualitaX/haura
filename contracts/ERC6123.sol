@@ -12,7 +12,6 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     using Chainlink for Chainlink.Request;
 
     event referenceRateFetched();
-    event RequestReferenceRate(bytes32 indexed requestId, int256 referenceRate);
 
     modifier onlyCounterparty() {
         require(
@@ -32,11 +31,6 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     * _initialMarginBuffer: 1000000
     * _initialTerminationFee: 500000
     * _rateMultiplier: 1
-    */
-    /** Mint: 10000000000000000000000000
-    */
-
-    /** URLS
     * setURLs: ["https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20210930&STKR=1", "https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20211001&STKR=2", "https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20211002&STKR=3", "https://x8ki-letl-twmt.n7.xano.io/api:aBashLUq/RetrieveSTKR?date=20211003&STKR=4"]
     * path: "0,STKR_in_pbs"
     */
@@ -72,11 +66,10 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         if(inceptor == _withParty)
             revert cannotInceptWithYourself(msg.sender, _withParty);
         require(
-            _withParty != irs.fixedRatePayer || _withParty != irs.floatingRatePayer,
+            _withParty == irs.fixedRatePayer || _withParty == irs.floatingRatePayer,
             "counterparty must be payer or receiver"
         );
-        require(_position != 1 || _position != -1, "invalid position");
-        if(_paymentAmount == 0) revert invalidPaymentAmount(_paymentAmount);
+        require(_position == 1 || _position == -1, "invalid position");
 
         if(_position == 1) {
             irs.fixedRatePayer = msg.sender;
