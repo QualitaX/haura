@@ -5,7 +5,7 @@ import "../Types.sol";
 import "../ERC6123.sol";
 
 contract SDCFactory {
-    uint256 numberOfContract;
+    uint256 numberOfContracts;
     mapping(uint256 => address) irsContracts;
 
     function deploySDCContract(
@@ -18,7 +18,13 @@ contract SDCFactory {
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
         uint256 _rateMultiplier 
-    ) external {
+    ) external returns(uint256) {
+        address fixedRatePayer;
+        require(
+            msg.sender == _irs.fixedRatePayer || msg.sender == _irs.floatingRatePayer,
+            "INVALID CALLER"
+        );
+
         ERC6123 irs = new ERC6123{salt: bytes32(abi.encodePacked(
             _irs.fixedRatePayer, _irs.floatingRatePayer
         ))}(
@@ -33,8 +39,15 @@ contract SDCFactory {
             _rateMultiplier 
         );
 
-        irsContracts[numberOfContract] = address(irs);
-        numberOfContract++;
+        uint256 id = numberOfContracts;
 
+        irsContracts[numberOfContracts] = address(irs);
+        numberOfContracts = id + 1;
+
+        return id; 
+    }
+
+    function getIRSContract(uint256 _id) external view returns(address) {
+        return irsContracts[_id];
     }
 }
