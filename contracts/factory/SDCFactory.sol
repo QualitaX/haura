@@ -19,14 +19,13 @@ contract SDCFactory {
         uint256 _initialTerminationFee,
         uint256 _rateMultiplier 
     ) external returns(uint256) {
-        address fixedRatePayer;
         require(
-            msg.sender == _irs.fixedRatePayer || msg.sender == _irs.floatingRatePayer,
+            msg.sender == _irs.fixedRatePayer || msg.sender == _irs.floatingRatePayer,
             "INVALID CALLER"
         );
 
         ERC6123 irs = new ERC6123{salt: bytes32(abi.encodePacked(
-            _irs.fixedRatePayer, _irs.floatingRatePayer
+            _irs.fixedRatePayer, _irs.floatingRatePayer, block.timestamp
         ))}(
             _irsTokenName,
             _irsTokenSymbol,
@@ -44,10 +43,14 @@ contract SDCFactory {
         irsContracts[numberOfContracts] = address(irs);
         numberOfContracts = id + 1;
 
-        return id; 
+        return id;
     }
 
     function getIRSContract(uint256 _id) external view returns(address) {
         return irsContracts[_id];
+    }
+
+    function getNumberOfContracts() external view returns(uint256) {
+        return numberOfContracts;
     }
 }
