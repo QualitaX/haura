@@ -10,11 +10,17 @@ let irs;
 let account1;
 let account2;
 let contract;
+let factory;
+let contractAddressBefore;
+let contractAddressAfter;
+let nbOfContractsBefore;
+let nbOfContractsAfter;
 let settlementToken;
 let jobId = "ca98366cc7314957b8c012c72f05aeeb";
 let initialMargin;
 let terminationFee;
 let margin;
+let twiceMargin;
 let linkToken;
 let chainlinkOracle;
 let paymentAmount;
@@ -86,6 +92,65 @@ describe("Interest Rate Swap: Deployment", async () => {
     });
 });
 
+describe("Interest Rate Swap: Deploying with the Factory", async () => {
+    beforeEach(async () => {
+        [account1, account2] = await ethers.getSigners();
+        initialMargin = 100;
+        terminationFee = 100;
+        linkToken = "0x779877A7B0D9E8603169DdbD7836e478b4624789";
+        chainlinkOracle = "0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD";
+
+        settlementToken = await hre.ethers.deployContract("SettlementToken",
+            [
+                "USDC Token",
+                "USDC"
+            ]
+        );
+
+        factory = await hre.ethers.deployContract("SDCFactory");
+
+        irs = {
+            fixedRatePayer: account1.address,
+            floatingRatePayer: account2.address,
+            oracleContractForBenchmark: hre.ethers.ZeroAddress,
+            settlementCurrency: settlementToken.target,
+            ratesDecimals: 1,
+            dayCountBasis: 0,
+            swapRate: 100,
+            spread: 0,
+            notionalAmount: 1000,
+            settlementFrequency: 360,
+            startingDate: Date.now(),
+            maturityDate: Date.now() + 36000,
+            settlementDates: [Date.now()+2000, Date.now()+4000]
+        }
+
+        nbOfContractsBefore = await factory.getNumberOfContracts();
+        contractAddressBefore = await factory.getIRSContract(0);
+
+        await factory.connect(account1).deploySDCContract(
+            "QualitaX Token",
+            "QTX",
+            irs,
+            linkToken,
+            chainlinkOracle,
+            jobId,
+            initialMargin,
+            terminationFee,
+            1
+        );
+    });
+
+    it("check IRS contract deployment has been successful", async () => {
+        nbOfContractsAfter = await factory.getNumberOfContracts();
+        contractAddressAfter = await factory.getIRSContract(0);
+
+        expect(Number(nbOfContractsAfter)).to.equal(Number(nbOfContractsBefore) + 1);
+        expect(contractAddressBefore).to.equal(hre.ethers.ZeroAddress);
+        expect(contractAddressAfter).not.to.equal(hre.ethers.ZeroAddress);
+    });
+});
+
 describe("Interest Rate Swap: IRS Token", async () => {
     beforeEach(async () => {
         [account1, account2] = await ethers.getSigners();
@@ -95,6 +160,7 @@ describe("Interest Rate Swap: IRS Token", async () => {
         longPosition = 1;
         shortPosition = -1;
         margin = (initialMargin + terminationFee) * 1e18 + '';
+        twiceMargin = 2 * (initialMargin + terminationFee) * 1e18 + '';
         linkToken = "0x779877A7B0D9E8603169DdbD7836e478b4624789";
         chainlinkOracle = "0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD";
 
@@ -323,7 +389,7 @@ describe("Interest Rate Swap: Trade Initiation Phase", async () => {
         expect(
             contractBalance.toString()
         ).to.equal(
-            margin
+            twiceMargin
         );
     });
 

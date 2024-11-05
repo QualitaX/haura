@@ -14,7 +14,7 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient, ILogAutomation
 
     int256 internal referenceRate;
     int256 internal lockedReferenceRate;
-    uint256 internal netSettlementAmount;
+    uint256 internal settlementAmount;
     uint256 internal terminationAmount;
     uint8 internal transferMode;  // 0 -> transfer from payer account (transferFrom), 1 -> transfer from the contract balance (transfer)
     uint8 internal swapCount;
@@ -124,8 +124,6 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient, ILogAutomation
         burn(irs.fixedRatePayer, 1 ether);
         burn(irs.floatingRatePayer, 1 ether);
 
-        uint256 settlementAmount = netSettlementAmount * 1 ether / 10_000;
-
         if (transferMode == 0) {
             IERC20(irs.settlementCurrency).transferFrom(payerParty, receiverParty, settlementAmount);
         } else if (transferMode == 1) {
@@ -149,17 +147,5 @@ abstract contract ERC7586 is IERC7586, IRSToken, ChainlinkClient, ILogAutomation
 
     function getSwapCount() external view returns(uint8) {
         return swapCount;
-    }
-
-    /**
-     * @notice Allow withdraw of Link tokens from the contract
-     * !!!!!   SECURE THIS FUNCTION FROM BEING CALLED BY NOT ALLOWED USERS !!!!!
-     */
-    function withdrawLink() public {
-        LinkTokenInterface link = LinkTokenInterface(_chainlinkTokenAddress());
-        require(
-            link.transfer(msg.sender, link.balanceOf(address(this))),
-            "Unable to transfer"
-        );
     }
 }
