@@ -8,6 +8,7 @@ import "../ERC6123.sol";
 contract SDCFactory is Ownable {
     uint256 numberOfContracts;
     mapping(uint256 => address) irsContracts;
+    mapping(uint256 => bool) public netWorkSupported;
 
     constructor() Ownable(msg.sender) {}
 
@@ -20,12 +21,14 @@ contract SDCFactory is Ownable {
         string memory _jobId,
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
-        uint256 _rateMultiplier
+        uint256 _rateMultiplier,
+        uint256 _networkID 
     ) external returns(uint256) {
         require(
             msg.sender == _irs.fixedRatePayer || msg.sender == _irs.floatingRatePayer,
             "INVALID CALLER"
         );
+        require(netWorkSupported[_networkID], "NETWORK_NOT_SUPPORTED");
 
         ERC6123 irs = new ERC6123{salt: bytes32(abi.encodePacked(
             _irs.fixedRatePayer, _irs.floatingRatePayer, block.timestamp
@@ -47,6 +50,18 @@ contract SDCFactory is Ownable {
         numberOfContracts = id + 1;
 
         return id;
+    }
+
+    function registerNewNetwork(uint256 _networkID) external onlyOwner {
+        require(!netWorkSupported[_networkID], "NETWORK_ALREADY_SUPPORTED");
+
+        netWorkSupported[_networkID] = true;
+    }
+
+    function removeNewNetwork(uint256 _networkID) external onlyOwner {
+        require(netWorkSupported[_networkID], "NETWORK_NOT_SUPPORTED");
+
+        netWorkSupported[_networkID] = false;
     }
 
     function getIRSContract(uint256 _id) external view returns(address) {
