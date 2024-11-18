@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+import "../utils/Ownable.sol";
 import "../Types.sol";
 import "../ERC6123.sol";
 
-contract SDCFactory {
+contract SDCFactory is Ownable {
     uint256 numberOfContracts;
     mapping(uint256 => address) irsContracts;
+
+    constructor() Ownable(msg.sender) {}
 
     function deploySDCContract(
         string memory _irsTokenName,
@@ -17,7 +20,7 @@ contract SDCFactory {
         string memory _jobId,
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
-        uint256 _rateMultiplier 
+        uint256 _rateMultiplier
     ) external returns(uint256) {
         require(
             msg.sender == _irs.fixedRatePayer || msg.sender == _irs.floatingRatePayer,

@@ -141,7 +141,7 @@ describe("Interest Rate Swap: Deploying with the Factory", async () => {
         );
     });
 
-    it("check IRS contract deployment has been successful", async () => {
+    it("check IRS contract deployment with Factory has been successful", async () => {
         nbOfContractsAfter = await factory.getNumberOfContracts();
         contractAddressAfter = await factory.getIRSContract(0);
 
