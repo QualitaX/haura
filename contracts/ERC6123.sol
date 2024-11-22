@@ -43,12 +43,14 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         string memory _jobId,
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
-        uint256 _rateMultiplier
+        uint256 _rateMultiplier,
+        uint256 _networkID
     ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs, _linkToken, _chainlinkOracle) {
         initialMarginBuffer = _initialMarginBuffer;
         initialTerminationFee = _initialTerminationFee;
         confirmationTime = 1 hours;
         rateMultiplier = _rateMultiplier;
+        networkID = _networkID;
 
         jobId = bytes32(abi.encodePacked(_jobId));
         fee = (1 * LINK_DIVISIBILITY) / 10;  // 0,1 * 10**18 (Varies by network and job)
@@ -456,7 +458,8 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
                 netAmount: _settlementAmount,
                 timestamp: block.timestamp,
                 fixedRatePayment: fixedRatePayment,
-                floatingRatePayment: floatingRatePayment
+                floatingRatePayment: floatingRatePayment,
+                networkID: networkID
             })
         );
     }

@@ -159,6 +159,7 @@ abstract contract ERC6123Storage {
     uint256 public numberOfSettlement;
     uint256 internal fixedRatePayment;
     uint256 internal floatingRatePayment;
+    uint256 internal networkID;
 
     bytes32 internal jobId;
     uint256 internal fee;

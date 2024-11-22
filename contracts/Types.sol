@@ -29,5 +29,6 @@ abstract contract Types {
         uint256 timestamp;
         uint256 fixedRatePayment;
         uint256 floatingRatePayment;
+        uint256 networkID;
     }
 }
