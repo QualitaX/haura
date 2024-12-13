@@ -12,6 +12,10 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
     using Chainlink for Chainlink.Request;
 
     event referenceRateFetched();
+    event Incepted(string swapID, address inceptor, address withParty, uint256 timestamp);
+    event Confirmed(string swapID, uint256 timestamp);
+    event Canceled(string swapID, address canceledBy, uint256 timestamp);
+    event TerminationConfirmed(string swapID, address terminatedBy, uint256 timestamp);
 
     modifier onlyCounterparty() {
         require(
@@ -43,12 +47,14 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         string memory _jobId,
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
-        uint256 _rateMultiplier
+        uint256 _rateMultiplier,
+        string memory _swapID
     ) ERC7586(_irsTokenName, _irsTokenSymbol, _irs, _linkToken, _chainlinkOracle) {
         initialMarginBuffer = _initialMarginBuffer;
         initialTerminationFee = _initialTerminationFee;
         confirmationTime = 1 hours;
         rateMultiplier = _rateMultiplier;
+        swapID = _swapID;
 
         jobId = bytes32(abi.encodePacked(_jobId));
         fee = (1 * LINK_DIVISIBILITY) / 10;  // 0,1 * 10**18 (Varies by network and job)
@@ -107,6 +113,8 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
             _initialSettlementData
         );
 
+        emit Incepted(swapID, msg.sender, _withParty, block.timestamp);
+
         marginRequirements[msg.sender] = Types.MarginRequirement({
             marginBuffer: initialMarginBuffer,
             terminationFee: initialTerminationFee
@@ -151,6 +159,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         tradeState = TradeState.Confirmed;
 
         emit TradeConfirmed(msg.sender, tradeID);
+        emit Confirmed(swapID, block.timestamp);
 
         marginRequirements[msg.sender] = Types.MarginRequirement({
             marginBuffer: initialMarginBuffer,
@@ -193,6 +202,7 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         tradeState = TradeState.Inactive;
 
         emit TradeCanceled(msg.sender, tradeID);
+        emit Canceled(swapID, msg.sender, block.timestamp);
     }
 
     /**
@@ -290,6 +300,8 @@ contract ERC6123 is IERC6123, ERC6123Storage, ERC7586 {
         terminateSwap();
 
         tradeState = TradeState.Terminated;
+
+        emit TerminationConfirmed(swapID, msg.sender, block.timestamp);
     }
 
     function cancelTradeTermination(

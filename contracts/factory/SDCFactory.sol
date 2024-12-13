@@ -5,8 +5,11 @@ import "../Types.sol";
 import "../ERC6123.sol";
 
 contract SDCFactory {
-    uint256 numberOfContracts;
-    mapping(uint256 => address) irsContracts;
+    event SDCContractDeployed(
+        string swapID,
+        address sdcContractAddress,
+        uint256 timestamp
+    );
 
     function deploySDCContract(
         string memory _irsTokenName,
@@ -17,8 +20,9 @@ contract SDCFactory {
         string memory _jobId,
         uint256 _initialMarginBuffer,
         uint256 _initialTerminationFee,
-        uint256 _rateMultiplier 
-    ) external returns(uint256) {
+        uint256 _rateMultiplier,
+        string memory _swapID
+    ) external {
         require(
             msg.sender == _irs.fixedRatePayer || msg.sender == _irs.floatingRatePayer,
             "INVALID CALLER"
@@ -35,22 +39,14 @@ contract SDCFactory {
             _jobId,
             _initialMarginBuffer,
             _initialTerminationFee,
-            _rateMultiplier 
+            _rateMultiplier,
+            _swapID 
         );
 
-        uint256 id = numberOfContracts;
-
-        irsContracts[numberOfContracts] = address(irs);
-        numberOfContracts = id + 1;
-
-        return id;
-    }
-
-    function getIRSContract(uint256 _id) external view returns(address) {
-        return irsContracts[_id];
-    }
-
-    function getNumberOfContracts() external view returns(uint256) {
-        return numberOfContracts;
+        emit SDCContractDeployed(
+            _swapID,
+            address(irs),
+            block.timestamp
+        );
     }
 }

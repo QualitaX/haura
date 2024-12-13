@@ -146,6 +146,7 @@ abstract contract ERC6123Storage {
     TradeState internal tradeState;
 
     string tradeData;
+    string internal swapID;
     string public tradeID;
     string internal referenceRatePath;
     string[] internal referenceRateURLs;
